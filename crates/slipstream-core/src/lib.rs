@@ -67,20 +67,10 @@ pub fn normalize_domain(input: &str) -> Result<String, ConfigError> {
 }
 
 pub fn parse_resolver_addresses(addrs: &[String]) -> Result<Vec<HostPort>, ConfigError> {
-    let mut family: Option<AddressFamily> = None;
     let mut parsed = Vec::with_capacity(addrs.len());
 
     for addr in addrs {
         let parsed_addr = parse_host_port(addr, 53, AddressKind::Resolver)?;
-        if let Some(existing) = family {
-            if existing != parsed_addr.family {
-                return Err(ConfigError::new(
-                    "Cannot mix IPv4 and IPv6 resolver addresses",
-                ));
-            }
-        } else {
-            family = Some(parsed_addr.family);
-        }
         parsed.push(parsed_addr);
     }
 

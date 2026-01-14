@@ -48,5 +48,5 @@ The Rust CLI enforces the following constraints:
 
 - Client requires --domain and at least one --resolver.
 - Resolver parsing supports IPv4, bracketed IPv6, and optional :port.
-- Mixed IPv4/IPv6 resolver lists are rejected (matches the C limitation).
+- Resolver lists may mix IPv4 and IPv6 entries.
 - Server requires --domain; --target-address defaults to 127.0.0.1:5201.

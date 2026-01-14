@@ -28,8 +28,9 @@ Example:
 
 Notes:
 
-- Resolver addresses must all be IPv4 or all be IPv6; mixed families are rejected.
+- Resolver addresses may be IPv4 or bracketed IPv6; mixed families are supported.
 - IPv6 resolvers must be bracketed, for example: [2001:db8::1]:53.
+- IPv4 resolvers require an IPv6 dual-stack UDP socket (e.g., IPV6_V6ONLY=0 via OS defaults or sysctl).
 - --authoritative keeps the DNS wire format unchanged and remains C interop safe.
 - Use --authoritative only when you control the resolver/server path and can absorb high QPS bursts.
 - Authoritative mode now derives its QPS budget from picoquic’s pacing rate (scaled by the DNS payload size and RTT proxy) and falls back to cwnd if pacing is unavailable; `--debug-poll` logs the pacing rate, target QPS, and inflight polls.
@@ -45,10 +46,10 @@ Required flags:
 Common flags:
 
 - --dns-listen-port <PORT> (default: 53)
-- --dns-listen-ipv6 (default: false)
 - --target-address <HOST:PORT> (default: 127.0.0.1:5201)
 - --cert <PATH>
 - --key <PATH>
+- IPv4 DNS clients require an IPv6 dual-stack UDP socket (e.g., IPV6_V6ONLY=0 via OS defaults or sysctl).
 
 Example:
 

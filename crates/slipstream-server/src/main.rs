@@ -13,8 +13,6 @@ use tokio::runtime::Builder;
 struct Args {
     #[arg(long = "dns-listen-port", short = 'l', default_value_t = 53)]
     dns_listen_port: u16,
-    #[arg(long = "dns-listen-ipv6", short = '6', default_value_t = false)]
-    dns_listen_ipv6: bool,
     #[arg(long = "target-address", short = 'a', default_value = "127.0.0.1:5201")]
     target_address: String,
     #[arg(long = "cert", short = 'c', default_value = ".github/certs/cert.pem")]
@@ -58,7 +56,6 @@ fn main() {
 
     let config = ServerConfig {
         dns_listen_port: args.dns_listen_port,
-        dns_listen_ipv6: args.dns_listen_ipv6,
         target_address,
         cert: args.cert,
         key: args.key,

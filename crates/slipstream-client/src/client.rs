@@ -25,7 +25,7 @@ use slipstream_ffi::{
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -248,7 +248,7 @@ pub async fn run_client(config: &ClientConfig<'_>) -> Result<i32, ClientError> {
         return Err(ClientError::new("At least one resolver is required"));
     }
 
-    let udp = bind_udp_socket(&resolvers[0].addr).await?;
+    let udp = bind_udp_socket().await?;
     let mut local_addr_storage = socket_addr_to_storage(udp.local_addr().map_err(map_io)?);
 
     let (command_tx, mut command_rx) = mpsc::unbounded_channel();
@@ -514,7 +514,6 @@ pub async fn run_client(config: &ClientConfig<'_>) -> Result<i32, ClientError> {
             if addr_to.ss_family == 0 {
                 break;
             }
-            local_addr_storage = addr_from;
             debug.send_packets = debug.send_packets.saturating_add(1);
             debug.send_bytes = debug.send_bytes.saturating_add(send_length as u64);
 
@@ -534,6 +533,8 @@ pub async fn run_client(config: &ClientConfig<'_>) -> Result<i32, ClientError> {
             let packet = encode_query(&params).map_err(|err| ClientError::new(err.to_string()))?;
 
             let dest = sockaddr_storage_to_socket_addr(&addr_to)?;
+            let dest = normalize_dual_stack_addr(dest);
+            local_addr_storage = addr_from;
             udp.send_to(&packet, dest).await.map_err(map_io)?;
         }
 
@@ -862,6 +863,7 @@ fn resolve_resolvers(resolvers: &[HostPort]) -> Result<Vec<ResolverAddr>, Client
     let mut resolved = Vec::with_capacity(resolvers.len());
     for resolver in resolvers {
         let addr = resolve_host_port(resolver).map_err(|err| ClientError::new(err.to_string()))?;
+        let addr = normalize_dual_stack_addr(addr);
         resolved.push(ResolverAddr {
             addr,
             storage: socket_addr_to_storage(addr),
@@ -873,12 +875,18 @@ fn resolve_resolvers(resolvers: &[HostPort]) -> Result<Vec<ResolverAddr>, Client
     Ok(resolved)
 }
 
-async fn bind_udp_socket(addr: &SocketAddr) -> Result<TokioUdpSocket, ClientError> {
-    let bind_addr = match addr {
-        SocketAddr::V4(_) => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)),
-        SocketAddr::V6(_) => SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0)),
-    };
+async fn bind_udp_socket() -> Result<TokioUdpSocket, ClientError> {
+    let bind_addr = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0));
     TokioUdpSocket::bind(bind_addr).await.map_err(map_io)
+}
+
+fn normalize_dual_stack_addr(addr: SocketAddr) -> SocketAddr {
+    match addr {
+        SocketAddr::V4(v4) => {
+            SocketAddr::V6(SocketAddrV6::new(v4.ip().to_ipv6_mapped(), v4.port(), 0, 0))
+        }
+        SocketAddr::V6(v6) => SocketAddr::V6(v6),
+    }
 }
 
 fn spawn_acceptor(listener: TokioTcpListener, command_tx: mpsc::UnboundedSender<Command>) {
@@ -1284,6 +1292,7 @@ async fn send_poll_queries(
         let packet = encode_query(&params).map_err(|err| ClientError::new(err.to_string()))?;
 
         let dest = sockaddr_storage_to_socket_addr(&addr_to)?;
+        let dest = normalize_dual_stack_addr(dest);
         udp.send_to(&packet, dest).await.map_err(map_io)?;
         if config.authoritative {
             inflight_poll_ids.insert(poll_id, current_time);

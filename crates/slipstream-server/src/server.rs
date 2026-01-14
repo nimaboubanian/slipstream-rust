@@ -21,7 +21,7 @@ use slipstream_ffi::{
 use std::collections::{HashMap, VecDeque};
 use std::ffi::CString;
 use std::fmt;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -67,7 +67,6 @@ impl std::error::Error for ServerError {}
 
 pub struct ServerConfig {
     pub dns_listen_port: u16,
-    pub dns_listen_ipv6: bool,
     pub target_address: HostPort,
     pub cert: String,
     pub key: String,
@@ -259,7 +258,7 @@ pub async fn run_server(config: &ServerConfig) -> Result<i32, ServerError> {
         configure_quic_with_custom(quic, slipstream_server_cc_algorithm, QUIC_MTU);
     }
 
-    let udp = bind_udp_socket(config.dns_listen_port, config.dns_listen_ipv6).await?;
+    let udp = bind_udp_socket(config.dns_listen_port).await?;
     let local_addr_storage = socket_addr_to_storage(udp.local_addr().map_err(map_io)?);
 
     unsafe {
@@ -297,7 +296,6 @@ pub async fn run_server(config: &ServerConfig) -> Result<i32, ServerError> {
                     quic,
                     loop_time,
                     &local_addr_storage,
-                    config.dns_listen_ipv6,
                 )? {
                     slots.push(slot);
                 }
@@ -311,7 +309,6 @@ pub async fn run_server(config: &ServerConfig) -> Result<i32, ServerError> {
                                 quic,
                                 loop_time,
                                 &local_addr_storage,
-                                config.dns_listen_ipv6,
                             )? {
                                 slots.push(slot);
                             }
@@ -377,7 +374,8 @@ pub async fn run_server(config: &ServerConfig) -> Result<i32, ServerError> {
                 rcode,
             })
             .map_err(|err| ServerError::new(err.to_string()))?;
-            udp.send_to(&response, slot.peer).await.map_err(map_io)?;
+            let peer = normalize_dual_stack_addr(slot.peer);
+            udp.send_to(&response, peer).await.map_err(map_io)?;
         }
     }
 
@@ -391,11 +389,10 @@ fn decode_slot(
     quic: *mut picoquic_quic_t,
     current_time: u64,
     local_addr_storage: &libc::sockaddr_storage,
-    listen_ipv6: bool,
 ) -> Result<Option<Slot>, ServerError> {
     match decode_query(packet, domain) {
         Ok(query) => {
-            let mut peer_storage = dummy_sockaddr_storage(listen_ipv6);
+            let mut peer_storage = dummy_sockaddr_storage();
             let mut local_storage = unsafe { std::ptr::read(local_addr_storage) };
             let mut first_cnx: *mut picoquic_cnx_t = std::ptr::null_mut();
             let mut first_path: libc::c_int = -1;
@@ -423,7 +420,7 @@ fn decode_slot(
                 slipstream_disable_ack_delay(first_cnx);
             }
             Ok(Some(Slot {
-                peer,
+                peer: normalize_dual_stack_addr(peer),
                 id: query.id,
                 rd: query.rd,
                 cd: query.cd,
@@ -446,7 +443,7 @@ fn decode_slot(
                 None => return Ok(None),
             };
             Ok(Some(Slot {
-                peer,
+                peer: normalize_dual_stack_addr(peer),
                 id,
                 rd,
                 cd,
@@ -1231,46 +1228,35 @@ fn handle_shutdown(quic: *mut picoquic_quic_t, state: &mut ServerState) -> bool 
     true
 }
 
-async fn bind_udp_socket(port: u16, ipv6: bool) -> Result<TokioUdpSocket, ServerError> {
-    let addr = if ipv6 {
-        SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0))
-    } else {
-        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port))
-    };
+async fn bind_udp_socket(port: u16) -> Result<TokioUdpSocket, ServerError> {
+    let addr = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0));
     TokioUdpSocket::bind(addr).await.map_err(map_io)
 }
 
-fn dummy_sockaddr_storage(ipv6: bool) -> libc::sockaddr_storage {
-    if ipv6 {
-        let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
-        let sockaddr = libc::sockaddr_in6 {
-            sin6_family: libc::AF_INET6 as libc::sa_family_t,
-            sin6_port: 12345u16.to_be(),
-            sin6_flowinfo: 0,
-            sin6_addr: libc::in6_addr {
-                s6_addr: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1).octets(),
-            },
-            sin6_scope_id: 0,
-        };
-        unsafe {
-            std::ptr::write(&mut storage as *mut _ as *mut libc::sockaddr_in6, sockaddr);
+fn normalize_dual_stack_addr(addr: SocketAddr) -> SocketAddr {
+    match addr {
+        SocketAddr::V4(v4) => {
+            SocketAddr::V6(SocketAddrV6::new(v4.ip().to_ipv6_mapped(), v4.port(), 0, 0))
         }
-        storage
-    } else {
-        let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
-        let sockaddr = libc::sockaddr_in {
-            sin_family: libc::AF_INET as libc::sa_family_t,
-            sin_port: 12345u16.to_be(),
-            sin_addr: libc::in_addr {
-                s_addr: u32::from_be_bytes(Ipv4Addr::new(192, 0, 2, 1).octets()),
-            },
-            sin_zero: [0; 8],
-        };
-        unsafe {
-            std::ptr::write(&mut storage as *mut _ as *mut libc::sockaddr_in, sockaddr);
-        }
-        storage
+        SocketAddr::V6(v6) => SocketAddr::V6(v6),
     }
+}
+
+fn dummy_sockaddr_storage() -> libc::sockaddr_storage {
+    let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+    let sockaddr = libc::sockaddr_in6 {
+        sin6_family: libc::AF_INET6 as libc::sa_family_t,
+        sin6_port: 12345u16.to_be(),
+        sin6_flowinfo: 0,
+        sin6_addr: libc::in6_addr {
+            s6_addr: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1).octets(),
+        },
+        sin6_scope_id: 0,
+    };
+    unsafe {
+        std::ptr::write(&mut storage as *mut _ as *mut libc::sockaddr_in6, sockaddr);
+    }
+    storage
 }
 
 fn map_io(err: std::io::Error) -> ServerError {
