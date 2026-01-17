@@ -96,8 +96,24 @@ jobs:
         run: |
           # The Rust build script expects picotls libs in _deps/picotls-build
           mkdir -p .picoquic-build/_deps/picotls-build
-          cp /tmp/picotls-build/picotls-build/libpicotls-*.a .picoquic-build/_deps/picotls-build/
 
+          # Copy picotls libraries and report what was found
+          echo "Copying picotls libraries..."
+          for lib in /tmp/picotls-build/picotls-build/libpicotls-*.a; do
+            if [ -f "$lib" ]; then
+              cp "$lib" .picoquic-build/_deps/picotls-build/
+              echo "✓ Copied: $(basename $lib)"
+            fi
+          done
+
+          # Check for picotls-fusion (may not exist on all platforms)
+          if [ -f "/tmp/picotls-build/picotls-build/libpicotls-fusion.a" ]; then
+            echo "✓ picotls-fusion available"
+          else
+            echo "⚠ picotls-fusion not available (CPU feature dependent)"
+          fi
+
+          echo ""
           echo "=== Copied picotls libraries ==="
           ls -la .picoquic-build/_deps/picotls-build/
           echo ""
@@ -395,8 +411,24 @@ jobs:
         run: |
           # The Rust build script expects picotls libs in _deps/picotls-build
           mkdir -p .picoquic-build/_deps/picotls-build
-          cp /tmp/picotls-build/picotls-build/libpicotls-*.a .picoquic-build/_deps/picotls-build/
 
+          # Copy picotls libraries and report what was found
+          echo "Copying picotls libraries..."
+          for lib in /tmp/picotls-build/picotls-build/libpicotls-*.a; do
+            if [ -f "$lib" ]; then
+              cp "$lib" .picoquic-build/_deps/picotls-build/
+              echo "✓ Copied: $(basename $lib)"
+            fi
+          done
+
+          # Check for picotls-fusion (may not exist on all platforms)
+          if [ -f "/tmp/picotls-build/picotls-build/libpicotls-fusion.a" ]; then
+            echo "✓ picotls-fusion available"
+          else
+            echo "⚠ picotls-fusion not available (CPU feature dependent)"
+          fi
+
+          echo ""
           echo "=== Copied picotls libraries ==="
           ls -la .picoquic-build/_deps/picotls-build/
           echo ""
@@ -615,9 +647,12 @@ jobs:
           $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\(VERSION [0-9.]+\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)'
           # Make PkgConfig optional (remove REQUIRED)
           $content = $content -replace 'FIND_PACKAGE\(PkgConfig REQUIRED\)', 'FIND_PACKAGE(PkgConfig)'
-          # Make PKG_CHECK_MODULES conditional
-          $content = $content -replace 'PKG_CHECK_MODULES\((.*?)\)', 'IF(PkgConfig_FOUND)$\nPKG_CHECK_MODULES($1)$\nENDIF()'
-          Set-Content CMakeLists.txt -Value $content -NoNewline
+          # Make PKG_CHECK_MODULES conditional - use actual newlines via regex replace
+          $content = $content -replace 'PKG_CHECK_MODULES\((\w+)\)', {
+            param($match)
+            "IF(PkgConfig_FOUND)`nPKG_CHECK_MODULES($($match.Groups[1].Value))`nENDIF()"
+          }
+          Set-Content CMakeLists.txt -Value $content
 
           Write-Host "✅ Patched picotls for Windows"
           Get-Content CMakeLists.txt -Head 5
@@ -635,7 +670,12 @@ jobs:
           cmake --build C:\tmp\picotls-build\picotls-build --config Release
 
           Write-Host "✅ Built picotls libraries"
-          Get-ChildItem C:\tmp\picotls-build\picotls-build\Release\*.lib
+          if (Test-Path "C:\tmp\picotls-build\picotls-build\Release\*.lib") {
+            Get-ChildItem C:\tmp\picotls-build\picotls-build\Release\*.lib
+          } else {
+            Write-Host "Warning: No .lib files found in Release directory"
+            Get-ChildItem -Recurse C:\tmp\picotls-build\picotls-build\*.lib
+          }
 
       - name: Build picoquic
         shell: pwsh
@@ -665,10 +705,27 @@ jobs:
         run: |
           # The Rust build script expects picotls libs in _deps\picotls-build
           New-Item -ItemType Directory -Force -Path ".picoquic-build\_deps\picotls-build"
-          Copy-Item C:\tmp\picotls-build\picotls-build\Release\*.lib .picoquic-build\_deps\picotls-build\
 
-          Write-Host "=== Copied picotls libraries ==="
-          Get-ChildItem .picoquic-build\_deps\picotls-build\
+          # Copy picotls libraries individually for better error handling
+          $libraries = @("picotls-core", "picotls-openssl", "picotls-minicrypto", "picotls-fusion")
+          $sourceDir = "C:\tmp\picotls-build\picotls-build\Release"
+          $destDir = ".picoquic-build\_deps\picotls-build"
+
+          $copied = 0
+          foreach ($lib in $libraries) {
+            $libFile = "$sourceDir\$lib.lib"
+            if (Test-Path $libFile) {
+              Copy-Item $libFile $destDir
+              Write-Host "✓ Copied: $lib.lib"
+              $copied++
+            } else {
+              Write-Host "✗ Not found (optional): $lib.lib"
+            }
+          }
+
+          Write-Host ""
+          Write-Host "=== Copied $copied picotls libraries ==="
+          Get-ChildItem $destDir\
           Write-Host ""
           Write-Host "=== All picoquic build files ==="
           Get-ChildItem -Recurse .picoquic-build\*.lib
