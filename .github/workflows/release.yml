@@ -671,9 +671,554 @@ jobs:
           name: slipstream-client-linux-x64-static
           path: release/*.tar.gz
 
+  build-linux-server-aarch64:
+    name: Build Linux Server ARM64 (Static)
+    runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
+          echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+
+          apk update
+          apk add --no-cache \
+            git \
+            cmake \
+            make \
+            gcc \
+            g++ \
+            musl-dev \
+            linux-headers \
+            openssl-dev \
+            openssl-libs-static \
+            pkgconfig \
+            bash \
+            perl \
+            file \
+            binutils \
+            aarch64-none-elf-gcc \
+            aarch64-none-elf-binutils
+
+      - name: Install Rust aarch64 target
+        run: |
+          rustup target add aarch64-unknown-linux-musl
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Pre-fetch and patch picotls (aarch64)
+        run: |
+          echo "Pre-fetching and building picotls for aarch64..."
+
+          # Clone picotls with submodules (includes picotest)
+          mkdir -p /tmp/picotls-build
+          git clone --depth 1 --recurse-submodules https://github.com/h2o/picotls.git /tmp/picotls-build/picotls
+
+          # Patch the CMakeLists.txt to allow CMake 3.5
+          cd /tmp/picotls-build/picotls
+          sed -i 's/CMAKE_MINIMUM_REQUIRED(VERSION [0-9.]*)/CMAKE_MINIMUM_REQUIRED(VERSION 3.5)/' CMakeLists.txt
+
+          echo "✅ Cloned picotls with submodules"
+
+          # Build picotls libraries for aarch64
+          mkdir -p /tmp/picotls-build/picotls-build
+          cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-none-elf-gcc \
+            -DCMAKE_AR=/usr/bin/ar \
+            -DCMAKE_STRIP=/usr/bin/strip \
+            -DOPENSSL_ROOT_DIR=/usr \
+            -DOPENSSL_LIBRARIES=/usr/lib
+
+          # Build only the library targets, not tests
+          cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
+
+          echo "✅ Built picotls libraries for aarch64"
+          ls -la /tmp/picotls-build/picotls-build/*.a
+
+      - name: Build picoquic (aarch64)
+        run: |
+          ROOT_DIR="$PWD"
+          PICOQUIC_DIR="${ROOT_DIR}/vendor/picoquic"
+          BUILD_DIR="${ROOT_DIR}/.picoquic-build"
+          PICOQUIC_PATCHED_PTLS="/tmp/picotls-build"
+          PICOQUIC_PATCHED_PTLS_BUILD="/tmp/picotls-build/picotls-build"
+
+          echo "Building picoquic for aarch64..."
+
+          # Configure with the pre-built picotls for aarch64
+          cmake -S "${PICOQUIC_DIR}" -B "${BUILD_DIR}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-none-elf-gcc \
+            -DCMAKE_AR=/usr/bin/ar \
+            -DCMAKE_STRIP=/usr/bin/strip \
+            -DPICOQUIC_FETCH_PTLS=OFF \
+            -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
+            -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
+            -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
+            -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
+
+          # Build picoquic
+          cmake --build "${BUILD_DIR}"
+
+          echo "✅ Picoquic built successfully for aarch64"
+
+          echo ""
+          echo "=== Picoquic library files (.a) ==="
+          find "${BUILD_DIR}" -name "*.a" | sort
+
+      - name: Copy picotls libraries for Rust build
+        run: |
+          # The Rust build script expects picotls libs in _deps/picotls-build
+          mkdir -p .picoquic-build/_deps/picotls-build
+
+          # Copy picotls libraries
+          echo "Copying picotls libraries..."
+          for lib in /tmp/picotls-build/picotls-build/libpicotls-*.a; do
+            if [ -f "$lib" ]; then
+              cp "$lib" .picoquic-build/_deps/picotls-build/
+              echo "✓ Copied: $(basename $lib)"
+            fi
+          done
+
+          echo ""
+          echo "=== Copied picotls libraries ==="
+          ls -la .picoquic-build/_deps/picotls-build/
+
+      - name: Set environment for static build
+        run: |
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
+          echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
+          echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
+          echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_musl=aarch64-none-elf-gcc" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_musl=aarch64-none-elf-ar" >> $GITHUB_ENV
+
+      - name: Build server (aarch64)
+        run: |
+          echo "Building slipstream-server for aarch64..."
+          cargo build --release --target aarch64-unknown-linux-musl -p slipstream-server
+          echo "✅ Server built successfully"
+
+      - name: Verify static linking
+        run: |
+          BINARY="target/aarch64-unknown-linux-musl/release/slipstream-server"
+
+          echo "=== Binary information ==="
+          file "$BINARY"
+
+          echo ""
+          echo "=== File size (before strip) ==="
+          ls -lh "$BINARY"
+
+          echo ""
+          echo "=== Stripping debug symbols ==="
+          aarch64-none-elf-strip "$BINARY"
+          echo "Final size:"
+          ls -lh "$BINARY"
+
+      - name: Create release package
+        run: |
+          mkdir -p release/slipstream-server
+          cp target/aarch64-unknown-linux-musl/release/slipstream-server release/slipstream-server/
+
+          cat > release/slipstream-server/server.conf << 'EOF'
+          # Slipstream Server Configuration
+          DOMAIN=tunnel.example.com
+          DNS_LISTEN_PORT=53
+          TARGET_ADDRESS=127.0.0.1:5201
+          CERT_PATH=./cert.pem
+          KEY_PATH=./key.pem
+          EOF
+
+          cat > release/slipstream-server/start-server.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
+          if [ ! -f server.conf ]; then
+              echo "❌ Error: server.conf not found"
+              exit 1
+          fi
+
+          source server.conf
+
+          echo "================================================"
+          echo "  Slipstream DNS Tunnel Server (ARM64)"
+          echo "================================================"
+          echo ""
+          echo "Configuration:"
+          echo "  Domain      : ${DOMAIN}"
+          echo "  DNS Port    : ${DNS_LISTEN_PORT}"
+          echo "  Target      : ${TARGET_ADDRESS}"
+          echo "  Certificate : ${CERT_PATH}"
+          echo "  Private Key : ${KEY_PATH}"
+          echo ""
+
+          if [ ! -f "${CERT_PATH}" ] || [ ! -f "${KEY_PATH}" ]; then
+              echo "❌ Error: Certificate files not found"
+              echo "   Run: ./generate-cert.sh"
+              exit 1
+          fi
+
+          echo "Starting server..."
+          echo "Press Ctrl+C to stop"
+          echo ""
+
+          ./slipstream-server \
+            --dns-listen-port ${DNS_LISTEN_PORT} \
+            --target-address ${TARGET_ADDRESS} \
+            --domain ${DOMAIN} \
+            --cert ${CERT_PATH} \
+            --key ${KEY_PATH}
+          EOF
+          chmod +x release/slipstream-server/start-server.sh
+
+          cat > release/slipstream-server/generate-cert.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
+          echo "Generating self-signed TLS certificate..."
+          echo ""
+
+          if ! command -v openssl &> /dev/null; then
+              echo "❌ Error: openssl command not found"
+              exit 1
+          fi
+
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout key.pem -out cert.pem -days 365 \
+            -subj "/CN=slipstream" \
+            -addext "subjectAltName=DNS:tunnel.example.com,DNS:*.tunnel.example.com"
+
+          chmod 600 key.pem
+          chmod 644 cert.pem
+
+          echo ""
+          echo "✅ Certificate generated: cert.pem, key.pem"
+          EOF
+          chmod +x release/slipstream-server/generate-cert.sh
+
+          cat > release/slipstream-server/README.md << 'EOF'
+          # Slipstream Server - Linux ARM64 (Fully Static)
+
+          ✅ **Zero runtime dependencies - Works on ANY ARM64 Linux**
+
+          ## Quick Start
+
+          ```bash
+          # 1. Generate certificates
+          ./generate-cert.sh
+
+          # 2. Configure (edit server.conf)
+          nano server.conf
+
+          # 3. Run (port 53 requires root)
+          sudo ./start-server.sh
+          ```
+
+          ## Requirements
+
+          **To run the server**: NOTHING (fully static binary)
+
+          **To generate certificates** (one-time): `openssl` command
+
+          ## Configuration
+
+          Edit `server.conf`:
+          - `DOMAIN`: Your tunnel domain (e.g., tunnel.example.com)
+          - `DNS_LISTEN_PORT`: 53 (production) or 8853 (testing)
+          - `TARGET_ADDRESS`: Forwarding destination (e.g., 127.0.0.1:5201)
+
+          ## Documentation
+
+          https://github.com/Mygod/slipstream-rust
+          EOF
+
+          cd release
+          tar -czf slipstream-server-linux-aarch64-static.tar.gz slipstream-server/
+
+          echo ""
+          echo "=== Package created ==="
+          ls -lh *.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slipstream-server-linux-aarch64-static
+          path: release/*.tar.gz
+
+  build-linux-client-aarch64:
+    name: Build Linux Client ARM64 (Static)
+    runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
+          echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+
+          apk update
+          apk add --no-cache \
+            git \
+            cmake \
+            make \
+            gcc \
+            g++ \
+            musl-dev \
+            linux-headers \
+            openssl-dev \
+            openssl-libs-static \
+            pkgconfig \
+            bash \
+            perl \
+            file \
+            binutils \
+            aarch64-none-elf-gcc \
+            aarch64-none-elf-binutils
+
+      - name: Install Rust aarch64 target
+        run: |
+          rustup target add aarch64-unknown-linux-musl
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Pre-fetch and patch picotls (aarch64)
+        run: |
+          echo "Pre-fetching and building picotls for aarch64..."
+
+          # Clone picotls with submodules (includes picotest)
+          mkdir -p /tmp/picotls-build
+          git clone --depth 1 --recurse-submodules https://github.com/h2o/picotls.git /tmp/picotls-build/picotls
+
+          # Patch the CMakeLists.txt to allow CMake 3.5
+          cd /tmp/picotls-build/picotls
+          sed -i 's/CMAKE_MINIMUM_REQUIRED(VERSION [0-9.]*)/CMAKE_MINIMUM_REQUIRED(VERSION 3.5)/' CMakeLists.txt
+
+          echo "✅ Cloned picotls with submodules"
+
+          # Build picotls libraries for aarch64
+          mkdir -p /tmp/picotls-build/picotls-build
+          cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-none-elf-gcc \
+            -DCMAKE_AR=/usr/bin/ar \
+            -DCMAKE_STRIP=/usr/bin/strip \
+            -DOPENSSL_ROOT_DIR=/usr \
+            -DOPENSSL_LIBRARIES=/usr/lib
+
+          # Build only the library targets, not tests
+          cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
+
+          echo "✅ Built picotls libraries for aarch64"
+          ls -la /tmp/picotls-build/picotls-build/*.a
+
+      - name: Build picoquic (aarch64)
+        run: |
+          ROOT_DIR="$PWD"
+          PICOQUIC_DIR="${ROOT_DIR}/vendor/picoquic"
+          BUILD_DIR="${ROOT_DIR}/.picoquic-build"
+          PICOQUIC_PATCHED_PTLS="/tmp/picotls-build"
+          PICOQUIC_PATCHED_PTLS_BUILD="/tmp/picotls-build/picotls-build"
+
+          echo "Building picoquic for aarch64..."
+
+          # Configure with the pre-built picotls for aarch64
+          cmake -S "${PICOQUIC_DIR}" -B "${BUILD_DIR}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-none-elf-gcc \
+            -DCMAKE_AR=/usr/bin/ar \
+            -DCMAKE_STRIP=/usr/bin/strip \
+            -DPICOQUIC_FETCH_PTLS=OFF \
+            -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
+            -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
+            -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
+            -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
+
+          # Build picoquic
+          cmake --build "${BUILD_DIR}"
+
+          echo "✅ Picoquic built successfully for aarch64"
+
+          echo ""
+          echo "=== Picoquic library files (.a) ==="
+          find "${BUILD_DIR}" -name "*.a" | sort
+
+      - name: Copy picotls libraries for Rust build
+        run: |
+          # The Rust build script expects picotls libs in _deps/picotls-build
+          mkdir -p .picoquic-build/_deps/picotls-build
+
+          # Copy picotls libraries
+          echo "Copying picotls libraries..."
+          for lib in /tmp/picotls-build/picotls-build/libpicotls-*.a; do
+            if [ -f "$lib" ]; then
+              cp "$lib" .picoquic-build/_deps/picotls-build/
+              echo "✓ Copied: $(basename $lib)"
+            fi
+          done
+
+          echo ""
+          echo "=== Copied picotls libraries ==="
+          ls -la .picoquic-build/_deps/picotls-build/
+
+      - name: Set environment for static build
+        run: |
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
+          echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
+          echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
+          echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_musl=aarch64-none-elf-gcc" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_musl=aarch64-none-elf-ar" >> $GITHUB_ENV
+
+      - name: Build client (aarch64)
+        run: |
+          echo "Building slipstream-client for aarch64..."
+          cargo build --release --target aarch64-unknown-linux-musl -p slipstream-client
+          echo "✅ Client built successfully"
+
+      - name: Verify static linking
+        run: |
+          BINARY="target/aarch64-unknown-linux-musl/release/slipstream-client"
+
+          echo "=== Binary information ==="
+          file "$BINARY"
+
+          echo ""
+          echo "=== File size (before strip) ==="
+          ls -lh "$BINARY"
+
+          echo ""
+          echo "=== Stripping debug symbols ==="
+          aarch64-none-elf-strip "$BINARY"
+          echo "Final size:"
+          ls -lh "$BINARY"
+
+      - name: Create release package
+        run: |
+          mkdir -p release/slipstream-client
+          cp target/aarch64-unknown-linux-musl/release/slipstream-client release/slipstream-client/
+
+          cat > release/slipstream-client/client.conf << 'EOF'
+          # Slipstream Client Configuration
+          DOMAIN=tunnel.example.com
+          RESOLVER=YOUR_SERVER_IP:53
+          TCP_LISTEN_PORT=7000
+          CONGESTION_CONTROL=dcubic
+          EOF
+
+          cat > release/slipstream-client/start-client.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
+          if [ ! -f client.conf ]; then
+              echo "❌ Error: client.conf not found"
+              exit 1
+          fi
+
+          source client.conf
+
+          if [ "$RESOLVER" = "YOUR_SERVER_IP:53" ]; then
+              echo "❌ Error: Configure RESOLVER in client.conf"
+              exit 1
+          fi
+
+          echo "================================================"
+          echo "  Slipstream DNS Tunnel Client (ARM64)"
+          echo "================================================"
+          echo ""
+          echo "Configuration:"
+          echo "  Domain      : ${DOMAIN}"
+          echo "  Resolver    : ${RESOLVER}"
+          echo "  Listen Port : ${TCP_LISTEN_PORT}"
+          echo ""
+
+          echo "Starting client..."
+          echo "Press Ctrl+C to stop"
+          echo ""
+
+          ./slipstream-client \
+            --domain ${DOMAIN} \
+            --resolver ${RESOLVER} \
+            --tcp-listen-port ${TCP_LISTEN_PORT} \
+            --congestion-control ${CONGESTION_CONTROL}
+          EOF
+          chmod +x release/slipstream-client/start-client.sh
+
+          cat > release/slipstream-client/README.md << 'EOF'
+          # Slipstream Client - Linux ARM64 (Fully Static)
+
+          ✅ **Zero runtime dependencies - Works on ANY ARM64 Linux**
+
+          ## Quick Start
+
+          ```bash
+          # 1. Configure (edit client.conf)
+          nano client.conf
+
+          # 2. Run
+          ./start-client.sh
+
+          # 3. Use SOCKS5 proxy
+          curl --proxy socks5://127.0.0.1:7000 http://example.com
+          ```
+
+          ## Requirements
+
+          **To run the client**: NOTHING (fully static binary)
+
+          Works on: Any ARM64 Linux (AWS Graviton, Oracle ARM, Raspberry Pi 4+, etc.)
+
+          ## Configuration
+
+          Edit `client.conf`:
+          - `DOMAIN`: Your tunnel domain (e.g., tunnel.example.com)
+          - `RESOLVER`: DNS server IP (your server's IP)
+          - `TCP_LISTEN_PORT`: Local SOCKS5 proxy port (default: 7000)
+          - `CONGESTION_CONTROL`: Congestion algorithm (dcubic, bbr, cubic)
+
+          ## Documentation
+
+          https://github.com/Mygod/slipstream-rust
+          EOF
+
+          cd release
+          tar -czf slipstream-client-linux-aarch64-static.tar.gz slipstream-client/
+
+          echo ""
+          echo "=== Package created ==="
+          ls -lh *.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slipstream-client-linux-aarch64-static
+          path: release/*.tar.gz
+
   create-release:
     name: Create GitHub Release
-    needs: [build-linux, build-linux-client]
+    needs: [build-linux, build-linux-client, build-linux-server-aarch64, build-linux-client-aarch64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
@@ -691,19 +1236,29 @@ jobs:
           body: |
             ## 🚀 Standalone Linux Executables - Zero Dependencies
 
-            ### Linux Server
+            ### Linux Server (x86_64)
             - **File**: `slipstream-server-linux-x64-static.tar.gz`
             - **Static MUSL binary** - works on ANY x86_64 Linux
             - **No dependencies** required to run
 
-            ### Linux Client
+            ### Linux Client (x86_64)
             - **File**: `slipstream-client-linux-x64-static.tar.gz`
             - **Static MUSL binary** - works on ANY x86_64 Linux
             - **No dependencies** required to run
 
+            ### Linux Server (ARM64/aarch64)
+            - **File**: `slipstream-server-linux-aarch64-static.tar.gz`
+            - **Static MUSL binary** - works on ANY ARM64 Linux
+            - For AWS Graviton, Oracle ARM, Raspberry Pi 4+, etc.
+
+            ### Linux Client (ARM64/aarch64)
+            - **File**: `slipstream-client-linux-aarch64-static.tar.gz`
+            - **Static MUSL binary** - works on ANY ARM64 Linux
+            - For AWS Graviton, Oracle ARM, Raspberry Pi 4+, etc.
+
             ### Quick Start
-            1. Download and extract
-            2. Edit configuration file
+            1. Download the appropriate package for your architecture
+            2. Extract and configure
             3. Run startup script
 
             > **Note**: Windows support is not currently available due to platform dependencies.
