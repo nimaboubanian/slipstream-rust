@@ -806,6 +806,7 @@ jobs:
           echo "Building picoquic for aarch64..."
 
           # Configure with the pre-built picotls for aarch64
+          # Set CMAKE_C_FLAGS to ensure OpenSSL static libraries are linked
           cmake -S "${PICOQUIC_DIR}" -B "${BUILD_DIR}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=Linux \
@@ -828,8 +829,8 @@ jobs:
             -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
             -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
 
-          # Build picoquic
-          cmake --build "${BUILD_DIR}"
+          # Build picoquic library only (skip test executables that have complex dependencies)
+          cmake --build "${BUILD_DIR}" --target picoquic
 
           echo "✅ Picoquic built successfully for aarch64"
 
@@ -1156,6 +1157,7 @@ jobs:
           echo "Building picoquic for aarch64..."
 
           # Configure with the pre-built picotls for aarch64
+          # Set CMAKE_C_FLAGS to ensure OpenSSL static libraries are linked
           cmake -S "${PICOQUIC_DIR}" -B "${BUILD_DIR}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=Linux \
@@ -1178,8 +1180,8 @@ jobs:
             -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
             -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
 
-          # Build picoquic
-          cmake --build "${BUILD_DIR}"
+          # Build picoquic library only (skip test executables that have complex dependencies)
+          cmake --build "${BUILD_DIR}" --target picoquic
 
           echo "✅ Picoquic built successfully for aarch64"
 
