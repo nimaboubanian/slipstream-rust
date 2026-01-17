@@ -678,6 +678,7 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
+          sudo dpkg --add-architecture arm64
           sudo apt-get update
           sudo apt-get install -y \
             git \
@@ -688,20 +689,21 @@ jobs:
             musl-dev \
             musl-tools \
             linux-libc-dev \
-            libssl-dev \
+            libssl-dev:arm64 \
             pkg-config \
             bash \
             perl \
             file \
             binutils \
             gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu
+            g++-aarch64-linux-gnu \
+            qemu-user-static
 
       - name: Install Rust toolchain
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          rustup target add aarch64-unknown-linux-musl
+          rustup target add aarch64-unknown-linux-gnu
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -729,8 +731,14 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DOPENSSL_ROOT_DIR=/usr \
-            -DOPENSSL_LIBRARIES=/usr/lib/x86_64-linux-gnu
+            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
+            -DOPENSSL_ROOT_DIR=/usr/aarch64-linux-gnu \
+            -DOPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include \
+            -DOPENSSL_LIBRARIES=/usr/aarch64-linux-gnu/lib \
+            -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
 
           # Build only the library targets, not tests
           cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
@@ -754,6 +762,14 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
+            -DOPENSSL_ROOT_DIR=/usr/aarch64-linux-gnu \
+            -DOPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include \
+            -DOPENSSL_LIBRARIES=/usr/aarch64-linux-gnu/lib \
+            -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
             -DPICOQUIC_FETCH_PTLS=OFF \
             -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
             -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
@@ -789,25 +805,25 @@ jobs:
 
       - name: Set environment for static build
         run: |
-          echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=/usr/aarch64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/aarch64-linux-gnu/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include" >> $GITHUB_ENV
           echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
           echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
           echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
-          echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-          echo "AR_aarch64_unknown_linux_musl=aarch64-linux-musl-ar" >> $GITHUB_ENV
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Build server (aarch64)
         run: |
           echo "Building slipstream-server for aarch64..."
-          cargo build --release --target aarch64-unknown-linux-musl -p slipstream-server
+          cargo build --release --target aarch64-unknown-linux-gnu -p slipstream-server
           echo "✅ Server built successfully"
 
       - name: Verify static linking
         run: |
-          BINARY="target/aarch64-unknown-linux-musl/release/slipstream-server"
+          BINARY="target/aarch64-unknown-linux-gnu/release/slipstream-server"
 
           echo "=== Binary information ==="
           file "$BINARY"
@@ -825,7 +841,7 @@ jobs:
       - name: Create release package
         run: |
           mkdir -p release/slipstream-server
-          cp target/aarch64-unknown-linux-musl/release/slipstream-server release/slipstream-server/
+          cp target/aarch64-unknown-linux-gnu/release/slipstream-server release/slipstream-server/
 
           cat > release/slipstream-server/server.conf << 'EOF'
           # Slipstream Server Configuration
@@ -959,6 +975,7 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
+          sudo dpkg --add-architecture arm64
           sudo apt-get update
           sudo apt-get install -y \
             git \
@@ -969,20 +986,21 @@ jobs:
             musl-dev \
             musl-tools \
             linux-libc-dev \
-            libssl-dev \
+            libssl-dev:arm64 \
             pkg-config \
             bash \
             perl \
             file \
             binutils \
             gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu
+            g++-aarch64-linux-gnu \
+            qemu-user-static
 
       - name: Install Rust toolchain
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          rustup target add aarch64-unknown-linux-musl
+          rustup target add aarch64-unknown-linux-gnu
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1010,8 +1028,14 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DOPENSSL_ROOT_DIR=/usr \
-            -DOPENSSL_LIBRARIES=/usr/lib/x86_64-linux-gnu
+            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
+            -DOPENSSL_ROOT_DIR=/usr/aarch64-linux-gnu \
+            -DOPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include \
+            -DOPENSSL_LIBRARIES=/usr/aarch64-linux-gnu/lib \
+            -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
 
           # Build only the library targets, not tests
           cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
@@ -1035,6 +1059,14 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
+            -DOPENSSL_ROOT_DIR=/usr/aarch64-linux-gnu \
+            -DOPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include \
+            -DOPENSSL_LIBRARIES=/usr/aarch64-linux-gnu/lib \
+            -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
             -DPICOQUIC_FETCH_PTLS=OFF \
             -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
             -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
@@ -1070,25 +1102,25 @@ jobs:
 
       - name: Set environment for static build
         run: |
-          echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=/usr/aarch64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/aarch64-linux-gnu/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include" >> $GITHUB_ENV
           echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
           echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
           echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
-          echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-          echo "AR_aarch64_unknown_linux_musl=aarch64-linux-musl-ar" >> $GITHUB_ENV
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Build client (aarch64)
         run: |
           echo "Building slipstream-client for aarch64..."
-          cargo build --release --target aarch64-unknown-linux-musl -p slipstream-client
+          cargo build --release --target aarch64-unknown-linux-gnu -p slipstream-client
           echo "✅ Client built successfully"
 
       - name: Verify static linking
         run: |
-          BINARY="target/aarch64-unknown-linux-musl/release/slipstream-client"
+          BINARY="target/aarch64-unknown-linux-gnu/release/slipstream-client"
 
           echo "=== Binary information ==="
           file "$BINARY"
@@ -1106,7 +1138,7 @@ jobs:
       - name: Create release package
         run: |
           mkdir -p release/slipstream-client
-          cp target/aarch64-unknown-linux-musl/release/slipstream-client release/slipstream-client/
+          cp target/aarch64-unknown-linux-gnu/release/slipstream-client release/slipstream-client/
 
           cat > release/slipstream-client/client.conf << 'EOF'
           # Slipstream Client Configuration
