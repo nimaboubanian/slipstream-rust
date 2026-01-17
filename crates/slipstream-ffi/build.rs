@@ -325,16 +325,24 @@ fn resolve_picoquic_libs(dir: &Path) -> Option<PicoquicLibs> {
 }
 
 fn resolve_picoquic_libs_single_dir(dir: &Path) -> Option<Vec<&'static str>> {
-    const REQUIRED: [(&str, &str); 5] = [
+    const REQUIRED: [(&str, &str); 4] = [
         ("picoquic_core", "picoquic-core"),
         ("picotls_core", "picotls-core"),
-        ("picotls_fusion", "picotls-fusion"),
         ("picotls_minicrypto", "picotls-minicrypto"),
         ("picotls_openssl", "picotls-openssl"),
     ];
-    let mut libs = Vec::with_capacity(REQUIRED.len());
+    // picotls-fusion is optional (CPU feature dependent)
+    const OPTIONAL: [(&str, &str); 1] = [
+        ("picotls_fusion", "picotls-fusion"),
+    ];
+    let mut libs = Vec::with_capacity(REQUIRED.len() + OPTIONAL.len());
     for (underscored, hyphenated) in REQUIRED {
         libs.push(find_lib_variant(dir, underscored, hyphenated)?);
+    }
+    for (underscored, hyphenated) in OPTIONAL {
+        if let Some(lib) = find_lib_variant(dir, underscored, hyphenated) {
+            libs.push(lib);
+        }
     }
     Some(libs)
 }
@@ -345,17 +353,22 @@ fn resolve_picoquic_libs_split(
 ) -> Option<Vec<&'static str>> {
     let picoquic_core = find_lib_variant(picoquic_dir, "picoquic_core", "picoquic-core")?;
     let picotls_core = find_lib_variant(picotls_dir, "picotls_core", "picotls-core")?;
-    let picotls_fusion = find_lib_variant(picotls_dir, "picotls_fusion", "picotls-fusion")?;
     let picotls_minicrypto =
         find_lib_variant(picotls_dir, "picotls_minicrypto", "picotls-minicrypto")?;
     let picotls_openssl = find_lib_variant(picotls_dir, "picotls_openssl", "picotls-openssl")?;
-    Some(vec![
+    // picotls-fusion is optional (CPU feature dependent)
+    let picotls_fusion = find_lib_variant(picotls_dir, "picotls_fusion", "picotls-fusion");
+
+    let mut libs = vec![
         picoquic_core,
         picotls_core,
-        picotls_fusion,
         picotls_minicrypto,
         picotls_openssl,
-    ])
+    ];
+    if let Some(fusion) = picotls_fusion {
+        libs.push(fusion);
+    }
+    Some(libs)
 }
 
 fn find_lib_variant<'a>(dir: &Path, underscored: &'a str, hyphenated: &'a str) -> Option<&'a str> {
