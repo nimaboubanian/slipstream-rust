@@ -16,6 +16,11 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
+          # Add edge repository for latest CMake
+          echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
+          echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+          
+          apk update
           apk add --no-cache \
             git \
             cmake \
@@ -30,14 +35,32 @@ jobs:
             bash \
             perl
 
+      - name: Verify CMake version
+        run: |
+          echo "=== CMake version ==="
+          cmake --version
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      - name: Patch picotls CMake requirement
+        run: |
+          # Update the minimum CMake version requirement in picotls
+          PICOTLS_CMAKE="vendor/picoquic/picotls/CMakeLists.txt"
+          if [ -f "$PICOTLS_CMAKE" ]; then
+            sed -i 's/CMAKE_MINIMUM_REQUIRED.*VERSION.*/CMAKE_MINIMUM_REQUIRED(VERSION 3.5)/' "$PICOTLS_CMAKE"
+            echo "✓ Patched picotls CMakeLists.txt"
+          else
+            echo "⚠ picotls CMakeLists.txt not found, will be fetched during build"
+          fi
+
       - name: Build picoquic
         run: |
           chmod +x scripts/build_picoquic.sh
+          # Set CMake policy to handle older versions
+          export CMAKE_POLICY_VERSION_MINIMUM=3.5
           ./scripts/build_picoquic.sh
 
       - name: Set environment for static build
@@ -56,12 +79,11 @@ jobs:
           echo "=== Binary information ==="
           file target/x86_64-unknown-linux-musl/release/slipstream-server
           echo ""
-          echo "=== Checking dependencies (should show 'not a dynamic executable') ==="
+          echo "=== Checking dependencies ==="
           ldd target/x86_64-unknown-linux-musl/release/slipstream-server 2>&1 || echo "✓ Fully static binary!"
           echo ""
           echo "=== Binary size ==="
           ls -lh target/x86_64-unknown-linux-musl/release/slipstream-server
-          du -h target/x86_64-unknown-linux-musl/release/slipstream-server
 
       - name: Create release package
         run: |
@@ -120,17 +142,12 @@ jobs:
           echo "Generating self-signed TLS certificate..."
           echo ""
           
-          # Check if openssl is available
           if ! command -v openssl &> /dev/null; then
               echo "Error: openssl command not found"
-              echo "Please install OpenSSL:"
-              echo "  - Ubuntu/Debian: sudo apt-get install openssl"
-              echo "  - CentOS/RHEL:   sudo yum install openssl"
-              echo "  - Alpine:        apk add openssl"
+              echo "Install: sudo apt-get install openssl (or equivalent)"
               exit 1
           fi
           
-          # Generate certificate
           openssl req -x509 -newkey rsa:2048 -nodes \
             -keyout key.pem -out cert.pem -days 365 \
             -subj "/CN=slipstream" \
@@ -140,344 +157,101 @@ jobs:
           chmod 644 cert.pem
           
           echo ""
-          echo "✓ Certificate generated successfully!"
-          echo "  - cert.pem (certificate)"
-          echo "  - key.pem  (private key)"
-          echo ""
-          echo "Certificate details:"
-          openssl x509 -in cert.pem -noout -text | grep -A2 "Subject:"
-          echo ""
-          echo "⚠ This is a self-signed certificate for testing."
-          echo "  For production, use Let's Encrypt or a proper CA."
+          echo "✓ Certificate generated!"
+          echo "  - cert.pem"
+          echo "  - key.pem"
           EOF
           chmod +x release/slipstream-server/generate-cert.sh
           
-          cat > release/slipstream-server/install-systemd.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          
-          if [ "$EUID" -ne 0 ]; then
-              echo "Please run as root (sudo)"
-              exit 1
-          fi
-          
-          INSTALL_DIR="/opt/slipstream"
-          
-          echo "Installing Slipstream Server to ${INSTALL_DIR}..."
-          
-          # Create directory
-          mkdir -p ${INSTALL_DIR}
-          
-          # Copy files
-          cp -v slipstream-server ${INSTALL_DIR}/
-          cp -v start-server.sh ${INSTALL_DIR}/
-          cp -v server.conf ${INSTALL_DIR}/
-          
-          # Copy certificates if they exist
-          if [ -f cert.pem ] && [ -f key.pem ]; then
-              cp -v cert.pem ${INSTALL_DIR}/
-              cp -v key.pem ${INSTALL_DIR}/
-              chmod 600 ${INSTALL_DIR}/key.pem
-          else
-              echo "⚠ No certificates found. Run generate-cert.sh first or copy your certificates to ${INSTALL_DIR}"
-          fi
-          
-          chmod +x ${INSTALL_DIR}/slipstream-server
-          chmod +x ${INSTALL_DIR}/start-server.sh
-          
-          # Create systemd service
-          cat > /etc/systemd/system/slipstream.service << 'SYSTEMD_EOF'
-          [Unit]
-          Description=Slipstream DNS Tunnel Server
-          After=network-online.target
-          Wants=network-online.target
-          
-          [Service]
-          Type=simple
-          User=root
-          WorkingDirectory=/opt/slipstream
-          ExecStart=/opt/slipstream/start-server.sh
-          Restart=always
-          RestartSec=10
-          StandardOutput=journal
-          StandardError=journal
-          
-          # Security hardening
-          NoNewPrivileges=true
-          PrivateTmp=true
-          ProtectSystem=strict
-          ProtectHome=true
-          ReadWritePaths=/opt/slipstream
-          
-          [Install]
-          WantedBy=multi-user.target
-          SYSTEMD_EOF
-          
-          # Reload systemd
-          systemctl daemon-reload
-          
-          echo ""
-          echo "✓ Installation complete!"
-          echo ""
-          echo "Next steps:"
-          echo "  1. Edit configuration: nano ${INSTALL_DIR}/server.conf"
-          echo "  2. Enable service: systemctl enable slipstream"
-          echo "  3. Start service: systemctl start slipstream"
-          echo "  4. Check status: systemctl status slipstream"
-          echo "  5. View logs: journalctl -u slipstream -f"
-          EOF
-          chmod +x release/slipstream-server/install-systemd.sh
-          
           cat > release/slipstream-server/README.md << 'EOF'
-          # Slipstream Server (Linux x86_64 - Fully Static)
+          # Slipstream Server (Linux x86_64 Static)
           
-          ✅ **Zero dependencies - runs on any x86_64 Linux distribution**
+          ✅ **Zero dependencies** - Works on any x86_64 Linux
           
-          Tested on: Ubuntu, Debian, Alpine, CentOS, Fedora, Arch, Amazon Linux, etc.
+          ## Quick Start
           
-          ## Quick Start (5 minutes)
+          1. **Generate certificates**:
+             ```bash
+             ./generate-cert.sh
+             ```
           
-          ### 1. Generate TLS Certificates
-          ```bash
-          ./generate-cert.sh
-          ```
+          2. **Edit config**:
+             ```bash
+             nano server.conf
+             ```
+             Change `DOMAIN`, `DNS_LISTEN_PORT`, `TARGET_ADDRESS`
           
-          This creates `cert.pem` and `key.pem` for testing.
+          3. **Run**:
+             ```bash
+             sudo ./start-server.sh
+             ```
           
-          ### 2. Configure Server
+          ## What You Need Installed
+          
+          **To run the server**: NOTHING (fully static binary)
+          
+          **To generate certificates** (one-time): `openssl` command
+          - Ubuntu/Debian: `sudo apt-get install openssl`
+          - CentOS/RHEL: `sudo yum install openssl`
+          - Alpine: `apk add openssl`
+          
+          ## Configuration
+          
           Edit `server.conf`:
+          - `DOMAIN`: Your tunnel domain
+          - `DNS_LISTEN_PORT`: 53 (production) or 8853 (testing)
+          - `TARGET_ADDRESS`: Where to forward traffic
+          - `CERT_PATH`, `KEY_PATH`: Certificate files
+          
+          ## Firewall
+          
           ```bash
-          nano server.conf
-          ```
+          # Ubuntu/Debian
+          sudo ufw allow 53/udp
           
-          Key settings:
-          - `DOMAIN`: Your tunnel domain (e.g., `tunnel.example.com`)
-          - `DNS_LISTEN_PORT`: `53` for production (requires root), `8853` for testing
-          - `TARGET_ADDRESS`: Where to forward traffic (e.g., `127.0.0.1:5201`)
-          
-          ### 3. Test Run
-          ```bash
-          # For testing (non-privileged port 8853)
-          # Set DNS_LISTEN_PORT=8853 in server.conf first
-          ./start-server.sh
-          
-          # For production (port 53, requires root)
-          sudo ./start-server.sh
-          ```
-          
-          ## Production Installation (systemd)
-          
-          ### Automated Installation
-          ```bash
-          sudo ./install-systemd.sh
-          ```
-          
-          This will:
-          - Copy files to `/opt/slipstream`
-          - Create systemd service
-          - Set up proper permissions
-          
-          ### Manual Service Control
-          ```bash
-          # Edit configuration
-          sudo nano /opt/slipstream/server.conf
-          
-          # Enable auto-start
-          sudo systemctl enable slipstream
-          
-          # Start service
-          sudo systemctl start slipstream
-          
-          # Check status
-          sudo systemctl status slipstream
-          
-          # View logs
-          sudo journalctl -u slipstream -f
-          
-          # Restart after config changes
-          sudo systemctl restart slipstream
-          ```
-          
-          ## DNS Configuration
-          
-          For clients to reach your server, configure DNS records:
-          
-          ### Option 1: Simple A Record
-          ```
-          tunnel.example.com.  IN  A  YOUR_SERVER_IP
-          ```
-          
-          ### Option 2: NS Delegation (Advanced)
-          ```
-          tunnel.example.com.      IN  NS  ns1.example.com.
-          ns1.example.com.         IN  A   YOUR_SERVER_IP
-          *.tunnel.example.com.    IN  NS  ns1.example.com.
-          ```
-          
-          ## Firewall Configuration
-          
-          ### UFW (Ubuntu/Debian)
-          ```bash
-          sudo ufw allow 53/udp comment 'Slipstream DNS'
-          sudo ufw reload
-          ```
-          
-          ### firewalld (CentOS/RHEL/Fedora)
-          ```bash
+          # CentOS/RHEL/Fedora
           sudo firewall-cmd --permanent --add-port=53/udp
           sudo firewall-cmd --reload
           ```
           
-          ### iptables
-          ```bash
-          sudo iptables -A INPUT -p udp --dport 53 -j ACCEPT
-          sudo iptables-save | sudo tee /etc/iptables/rules.v4
-          ```
-          
-          ### Cloud Providers
-          - **AWS**: Security Group - allow UDP 53 inbound
-          - **GCP**: Firewall Rules - allow UDP 53 from 0.0.0.0/0
-          - **Azure**: Network Security Group - allow UDP 53 inbound
-          
           ## Testing
           
-          ### Check if server is listening
           ```bash
-          sudo netstat -ulnp | grep slipstream
-          # or
-          sudo ss -ulnp | grep slipstream
-          ```
+          # Check if listening
+          sudo netstat -ulnp | grep 53
           
-          Expected output:
-          ```
-          udp   0   0 0.0.0.0:53   0.0.0.0:*   12345/slipstream-se
-          ```
-          
-          ### Test DNS response
-          ```bash
-          # From localhost
+          # Test DNS
           dig @localhost -p 53 test.tunnel.example.com
-          
-          # From another machine
-          dig @YOUR_SERVER_IP test.tunnel.example.com
           ```
           
-          ### Test with client
-          See the Windows/Linux client documentation.
+          ## Production (systemd)
           
-          ## Production Certificates (Let's Encrypt)
+          Create `/etc/systemd/system/slipstream.service`:
+          ```ini
+          [Unit]
+          Description=Slipstream DNS Tunnel
+          After=network.target
           
-          For production, use real certificates:
+          [Service]
+          Type=simple
+          WorkingDirectory=/opt/slipstream
+          ExecStart=/opt/slipstream/start-server.sh
+          Restart=always
           
+          [Install]
+          WantedBy=multi-user.target
+          ```
+          
+          Then:
           ```bash
-          # Install certbot
-          sudo apt-get install certbot  # Ubuntu/Debian
-          sudo yum install certbot       # CentOS/RHEL
-          
-          # Generate certificate (port 80 must be open temporarily)
-          sudo certbot certonly --standalone -d tunnel.example.com
-          
-          # Copy to slipstream directory
-          sudo cp /etc/letsencrypt/live/tunnel.example.com/fullchain.pem /opt/slipstream/cert.pem
-          sudo cp /etc/letsencrypt/live/tunnel.example.com/privkey.pem /opt/slipstream/key.pem
-          sudo chmod 600 /opt/slipstream/key.pem
-          
-          # Restart service
-          sudo systemctl restart slipstream
+          sudo systemctl enable --now slipstream
           ```
           
-          ## Troubleshooting
-          
-          ### Server won't start
-          ```bash
-          # Check if port is already in use
-          sudo netstat -ulnp | grep :53
-          
-          # Try running in foreground to see errors
-          ./start-server.sh
-          ```
-          
-          ### Permission denied (port 53)
-          Port 53 requires root privileges:
-          ```bash
-          sudo ./start-server.sh
-          # or for systemd
-          sudo systemctl start slipstream
-          ```
-          
-          ### Certificate errors
-          ```bash
-          # Verify certificate files exist and are readable
-          ls -l cert.pem key.pem
-          
-          # Check certificate validity
-          openssl x509 -in cert.pem -noout -text
-          ```
-          
-          ### No clients connecting
-          1. Check firewall allows UDP 53
-          2. Verify DNS records point to server
-          3. Test DNS resolution: `dig @YOUR_SERVER_IP tunnel.example.com`
-          4. Check server logs: `sudo journalctl -u slipstream -f`
-          
-          ### High CPU usage
-          - Normal during active tunneling
-          - Check for excessive failed connection attempts in logs
-          - Consider rate limiting at firewall level
-          
-          ## Performance Tuning
-          
-          ### Increase file descriptor limits
-          Edit `/etc/security/limits.conf`:
-          ```
-          *  soft  nofile  65536
-          *  hard  nofile  65536
-          ```
-          
-          ### Kernel parameters
-          Edit `/etc/sysctl.conf`:
-          ```
-          net.core.rmem_max = 134217728
-          net.core.wmem_max = 134217728
-          net.ipv4.udp_mem = 65536 131072 262144
-          ```
-          
-          Apply: `sudo sysctl -p`
-          
-          ## Architecture
-          
-          This binary is statically compiled with:
-          - **MUSL libc** (no glibc dependency)
-          - **Static OpenSSL 3.x**
-          - **Static picoquic/picotls**
-          
-          **File size**: ~8-12MB (stripped)
-          **Memory usage**: ~30-50MB idle, varies with connections
-          **CPU usage**: Low idle, scales with throughput
-          
-          ## Security Notes
-          
-          - Change default domain in production
-          - Use strong certificates (Let's Encrypt recommended)
-          - Monitor logs for suspicious activity
-          - Keep firewall rules restrictive
-          - Run with minimal privileges where possible
-          
-          ## Support
-          
-          - Project: https://github.com/Mygod/slipstream-rust
-          - Issues: https://github.com/Mygod/slipstream-rust/issues
+          Full documentation: https://github.com/Mygod/slipstream-rust
           EOF
-          
-          echo "=== Package contents ==="
-          ls -lh release/slipstream-server/
           
           cd release
           tar -czf slipstream-server-linux-x64-static.tar.gz slipstream-server/
-          
-          echo ""
-          echo "=== Archive created ==="
-          ls -lh slipstream-server-linux-x64-static.tar.gz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -518,7 +292,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\vcpkg\installed
-          key: windows-vcpkg-openssl-static-${{ hashFiles('**/Cargo.lock') }}
+          key: windows-vcpkg-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -539,11 +313,12 @@ jobs:
           cmake -S $PICOQUIC_DIR -B $BUILD_DIR `
             -DCMAKE_BUILD_TYPE=Release `
             -DPICOQUIC_FETCH_PTLS=ON `
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
             -A x64
           
           cmake --build $BUILD_DIR --config Release
           
-          Write-Host "✓ Picoquic build complete"
+          Write-Host "✓ Picoquic built"
 
       - name: Build client
         shell: pwsh
@@ -559,28 +334,12 @@ jobs:
           $env:PICOQUIC_DIR = "$PWD\vendor\picoquic"
           
           cargo build --release --target x86_64-pc-windows-msvc -p slipstream-client
-          
-          Write-Host "✓ Client build complete"
-
-      - name: Verify build
-        shell: pwsh
-        run: |
-          Write-Host "=== Binary information ==="
-          $binary = Get-Item "target\x86_64-pc-windows-msvc\release\slipstream-client.exe"
-          Write-Host "Size: $([math]::Round($binary.Length / 1MB, 2)) MB"
-          Write-Host "Path: $($binary.FullName)"
 
       - name: Create release package
         shell: pwsh
         run: |
-          # ... (keep the same Windows packaging code from previous version)
-          # I'll keep it short here since it's the same
-
           New-Item -ItemType Directory -Force -Path release\slipstream-client
           Copy-Item "target\x86_64-pc-windows-msvc\release\slipstream-client.exe" "release\slipstream-client\"
-          
-          # Copy the config and scripts from previous response
-          # (Same content as before to keep response concise)
           
           @'
           # Slipstream Client Configuration
@@ -590,11 +349,71 @@ jobs:
           CONGESTION_CONTROL=dcubic
           '@ | Out-File -FilePath "release\slipstream-client\client.conf" -Encoding UTF8
           
-          # Add start-client.bat and README.md from previous response
+          @'
+          @echo off
+          setlocal EnableDelayedExpansion
+          
+          title Slipstream Client
+          
+          if not exist client.conf (
+              echo Error: client.conf not found
+              pause
+              exit /b 1
+          )
+          
+          for /f "tokens=1,2 delims==" %%a in (client.conf) do (
+              set "line=%%a"
+              if not "!line:~0,1!"=="#" (
+                  set "%%a=%%b"
+              )
+          )
+          
+          set "CMD=slipstream-client.exe --domain %DOMAIN% --resolver %RESOLVER% --tcp-listen-port %TCP_LISTEN_PORT% --congestion-control %CONGESTION_CONTROL%"
+          
+          echo Starting Slipstream Client...
+          echo Domain: %DOMAIN%
+          echo Resolver: %RESOLVER%
+          echo Port: %TCP_LISTEN_PORT%
+          echo.
+          %CMD%
+          '@ | Out-File -FilePath "release\slipstream-client\start-client.bat" -Encoding ASCII
+          
+          @'
+          # Slipstream Client (Windows x64 Static)
+          
+          ✅ **Zero dependencies** - No VC++ Redistributable needed
+          
+          ## Quick Start
+          
+          1. **Edit** `client.conf`:
+             - Set `RESOLVER` to your server IP
+             - Set `DOMAIN` to match server
+          
+          2. **Run** `start-client.bat`
+          
+          3. **Connect** apps to SOCKS5: `127.0.0.1:7000`
+          
+          ## What You Need Installed
+          
+          **NOTHING!** This is a fully static binary.
+          
+          ## Testing
+          
+          ```cmd
+          curl --proxy socks5://127.0.0.1:7000 http://example.com
+          ```
+          
+          ## Browser Setup (Firefox)
+          
+          Settings → Network → Manual proxy:
+          - SOCKS Host: `127.0.0.1`
+          - Port: `7000`
+          - SOCKS v5
+          
+          Full docs: https://github.com/Mygod/slipstream-rust
+          '@ | Out-File -FilePath "release\slipstream-client\README.md" -Encoding UTF8
           
           Compress-Archive -Path "release\slipstream-client" -DestinationPath "release\slipstream-client-windows-x64-static.zip"
-          
-          Write-Host "✓ Package created"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -621,5 +440,22 @@ jobs:
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
           generate_release_notes: true
+          body: |
+            ## 📦 Standalone Binaries - Zero Dependencies
+            
+            ### Linux Server
+            - `slipstream-server-linux-x64-static.tar.gz`
+            - Fully static (MUSL libc)
+            - Works on ANY x86_64 Linux distro
+            
+            ### Windows Client  
+            - `slipstream-client-windows-x64-static.zip`
+            - Fully static (no VC++ Runtime needed)
+            - Windows 10/11 x64
+            
+            ### What You Need
+            - **Linux**: Nothing (fully static)
+            - **Windows**: Nothing (fully static)
+            - **Certificates**: `openssl` command (one-time setup only)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
