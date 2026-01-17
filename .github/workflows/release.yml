@@ -16,7 +16,6 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
-          # Add edge repository for latest packages
           echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
           echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
           
@@ -37,33 +36,41 @@ jobs:
             file \
             binutils
 
-      - name: Verify tools
-        run: |
-          echo "=== Tool versions ==="
-          cmake --version
-          gcc --version | head -n1
-          rustc --version
-
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Build picoquic with CMake policy fix
+      - name: Pre-fetch and patch picotls
+        run: |
+          echo "Pre-fetching picotls to patch CMake requirement..."
+          
+          # Create build directory
+          mkdir -p .picoquic-build/_deps
+          cd .picoquic-build/_deps
+          
+          # Clone picotls
+          git clone --depth 1 https://github.com/h2o/picotls.git picotls-src
+          
+          # Patch the CMakeLists.txt
+          cd picotls-src
+          sed -i 's/CMAKE_MINIMUM_REQUIRED(VERSION [0-9.]*)/CMAKE_MINIMUM_REQUIRED(VERSION 3.5)/' CMakeLists.txt
+          
+          echo "✅ Patched picotls CMakeLists.txt"
+          head -n 5 CMakeLists.txt
+
+      - name: Build picoquic
         run: |
           ROOT_DIR="$PWD"
           PICOQUIC_DIR="${ROOT_DIR}/vendor/picoquic"
           BUILD_DIR="${ROOT_DIR}/.picoquic-build"
-          BUILD_TYPE="Release"
-          FETCH_PTLS="ON"
           
           echo "Building picoquic..."
           
-          # Configure with CMAKE_POLICY_VERSION_MINIMUM flag
+          # Configure (picotls already fetched and patched)
           cmake -S "${PICOQUIC_DIR}" -B "${BUILD_DIR}" \
-            -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
-            -DPICOQUIC_FETCH_PTLS="${FETCH_PTLS}" \
-            -DCMAKE_POLICY_DEFAULT_CMP0000=NEW
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPICOQUIC_FETCH_PTLS=OFF
           
           # Build
           cmake --build "${BUILD_DIR}"
@@ -91,7 +98,7 @@ jobs:
           file "$BINARY"
           
           echo ""
-          echo "=== File size ==="
+          echo "=== File size (before strip) ==="
           ls -lh "$BINARY"
           
           echo ""
@@ -99,13 +106,14 @@ jobs:
           if ldd "$BINARY" 2>&1 | grep -q "not a dynamic executable"; then
             echo "✅ SUCCESS: Fully static binary!"
           else
-            echo "⚠️  Dynamic dependencies found:"
+            echo "⚠️  Dynamic dependencies:"
             ldd "$BINARY" || true
           fi
           
           echo ""
-          echo "=== Stripping binary ==="
+          echo "=== Stripping debug symbols ==="
           strip "$BINARY"
+          echo "Final size:"
           ls -lh "$BINARY"
 
       - name: Create release package
@@ -113,7 +121,6 @@ jobs:
           mkdir -p release/slipstream-server
           cp target/x86_64-unknown-linux-musl/release/slipstream-server release/slipstream-server/
           
-          # Configuration file
           cat > release/slipstream-server/server.conf << 'EOF'
           # Slipstream Server Configuration
           DOMAIN=tunnel.example.com
@@ -123,7 +130,6 @@ jobs:
           KEY_PATH=./key.pem
           EOF
           
-          # Startup script
           cat > release/slipstream-server/start-server.sh << 'EOF'
           #!/bin/bash
           set -e
@@ -166,7 +172,6 @@ jobs:
           EOF
           chmod +x release/slipstream-server/start-server.sh
           
-          # Certificate generation script
           cat > release/slipstream-server/generate-cert.sh << 'EOF'
           #!/bin/bash
           set -e
@@ -193,18 +198,14 @@ jobs:
           chmod 644 cert.pem
           
           echo ""
-          echo "✅ Certificate generated successfully!"
-          echo "   Files: cert.pem, key.pem"
-          echo ""
-          echo "⚠️  This is a self-signed certificate for testing only."
+          echo "✅ Certificate generated: cert.pem, key.pem"
           EOF
           chmod +x release/slipstream-server/generate-cert.sh
           
-          # README
           cat > release/slipstream-server/README.md << 'EOF'
-          # Slipstream Server (Linux x86_64 - Fully Static)
+          # Slipstream Server - Linux x86_64 (Fully Static)
           
-          ✅ **Zero dependencies - Runs on ANY x86_64 Linux**
+          ✅ **Zero runtime dependencies - Works on ANY x86_64 Linux**
           
           ## Quick Start
           
@@ -212,57 +213,63 @@ jobs:
           # 1. Generate certificates
           ./generate-cert.sh
           
-          # 2. Edit configuration
+          # 2. Configure (edit server.conf)
           nano server.conf
           
           # 3. Run (port 53 requires root)
           sudo ./start-server.sh
           ```
           
-          ## What You Need Installed
+          ## Requirements
           
-          ### To Run: NOTHING
-          This is a fully static binary.
+          **To run the server**: NOTHING (fully static binary)
           
-          ### To Generate Certificates (one-time): openssl command
+          **To generate certificates** (one-time): `openssl` command
           ```bash
-          sudo apt-get install openssl  # Ubuntu/Debian
-          sudo yum install openssl       # CentOS/RHEL
-          apk add openssl               # Alpine
+          sudo apt install openssl  # Ubuntu/Debian
+          sudo yum install openssl  # CentOS/RHEL
+          apk add openssl          # Alpine
           ```
           
           ## Configuration
           
           Edit `server.conf`:
-          - `DOMAIN`: Your tunnel domain
+          - `DOMAIN`: Your tunnel domain (e.g., tunnel.example.com)
           - `DNS_LISTEN_PORT`: 53 (production) or 8853 (testing)
-          - `TARGET_ADDRESS`: Forwarding destination
+          - `TARGET_ADDRESS`: Forwarding destination (e.g., 127.0.0.1:5201)
           
           ## Firewall
           
           ```bash
-          sudo ufw allow 53/udp  # Ubuntu
-          sudo firewall-cmd --permanent --add-port=53/udp  # CentOS/RHEL
+          # Ubuntu/Debian
+          sudo ufw allow 53/udp
+          
+          # CentOS/RHEL/Fedora
+          sudo firewall-cmd --permanent --add-port=53/udp
+          sudo firewall-cmd --reload
           ```
           
           ## Testing
           
           ```bash
+          # Check if listening
+          sudo netstat -ulnp | grep 53
+          
+          # Test DNS
           dig @localhost -p 53 test.tunnel.example.com
           ```
           
-          ## Full Documentation
+          ## Documentation
           
           https://github.com/Mygod/slipstream-rust
           EOF
           
-          # Create tarball
           cd release
           tar -czf slipstream-server-linux-x64-static.tar.gz slipstream-server/
           
           echo ""
           echo "=== Package created ==="
-          ls -lh slipstream-server-linux-x64-static.tar.gz
+          ls -lh *.tar.gz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -283,7 +290,6 @@ jobs:
       - name: Install vcpkg
         shell: pwsh
         run: |
-          Write-Host "Installing vcpkg..."
           git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
           cd C:\vcpkg
           .\bootstrap-vcpkg.bat
@@ -292,7 +298,6 @@ jobs:
       - name: Install OpenSSL (static)
         shell: pwsh
         run: |
-          Write-Host "Installing static OpenSSL..."
           cd C:\vcpkg
           .\vcpkg install openssl:x64-windows-static
 
@@ -316,6 +321,22 @@ jobs:
             target
           key: windows-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Pre-fetch and patch picotls
+        shell: pwsh
+        run: |
+          Write-Host "Pre-fetching picotls..."
+          
+          New-Item -ItemType Directory -Force -Path ".picoquic-build\_deps"
+          cd ".picoquic-build\_deps"
+          
+          git clone --depth 1 https://github.com/h2o/picotls.git picotls-src
+          
+          cd picotls-src
+          (Get-Content CMakeLists.txt) -replace 'CMAKE_MINIMUM_REQUIRED\(VERSION [0-9.]+\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)' | Set-Content CMakeLists.txt
+          
+          Write-Host "✅ Patched picotls"
+          Get-Content CMakeLists.txt -Head 5
+
       - name: Build picoquic
         shell: pwsh
         run: |
@@ -324,17 +345,14 @@ jobs:
           
           Write-Host "Building picoquic..."
           
-          # Configure with policy fix
           cmake -S $PICOQUIC_DIR -B $BUILD_DIR `
             -DCMAKE_BUILD_TYPE=Release `
-            -DPICOQUIC_FETCH_PTLS=ON `
-            -DCMAKE_POLICY_DEFAULT_CMP0000=NEW `
+            -DPICOQUIC_FETCH_PTLS=OFF `
             -A x64
           
-          # Build
           cmake --build $BUILD_DIR --config Release
           
-          Write-Host "✅ Picoquic built successfully"
+          Write-Host "✅ Picoquic built"
 
       - name: Build client
         shell: pwsh
@@ -349,22 +367,14 @@ jobs:
           $env:PICOQUIC_BUILD_DIR = "$PWD\.picoquic-build"
           $env:PICOQUIC_DIR = "$PWD\vendor\picoquic"
           
-          Write-Host "Building slipstream-client..."
+          Write-Host "Building client..."
           cargo build --release --target x86_64-pc-windows-msvc -p slipstream-client
           
-          Write-Host "✅ Client built successfully"
-
-      - name: Verify build
-        shell: pwsh
-        run: |
-          $binary = Get-Item "target\x86_64-pc-windows-msvc\release\slipstream-client.exe"
-          Write-Host "Binary size: $([math]::Round($binary.Length / 1MB, 2)) MB"
+          Write-Host "✅ Client built"
 
       - name: Create release package
         shell: pwsh
         run: |
-          Write-Host "Creating release package..."
-          
           New-Item -ItemType Directory -Force -Path release\slipstream-client
           Copy-Item "target\x86_64-pc-windows-msvc\release\slipstream-client.exe" "release\slipstream-client\"
           
@@ -409,7 +419,7 @@ jobs:
           '@ | Out-File -FilePath "release\slipstream-client\start-client.bat" -Encoding ASCII
           
           @'
-          # Slipstream Client (Windows x64 - Fully Static)
+          # Slipstream Client - Windows x64 (Fully Static)
           
           ✅ **Zero dependencies - No VC++ Redistributable needed**
           
@@ -419,9 +429,11 @@ jobs:
           2. Run `start-client.bat`
           3. Connect apps to SOCKS5: `127.0.0.1:7000`
           
-          ## What You Need: NOTHING
+          ## Requirements
           
-          This is a fully static binary.
+          **NOTHING!** Fully static binary.
+          
+          Works on: Windows 10/11 x64
           
           ## Testing
           
@@ -429,12 +441,12 @@ jobs:
           curl --proxy socks5://127.0.0.1:7000 http://example.com
           ```
           
+          ## Documentation
+          
           https://github.com/Mygod/slipstream-rust
           '@ | Out-File -FilePath "release\slipstream-client\README.md" -Encoding UTF8
           
           Compress-Archive -Path "release\slipstream-client" -DestinationPath "release\slipstream-client-windows-x64-static.zip"
-          
-          Write-Host "✅ Package created"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -464,18 +476,19 @@ jobs:
           body: |
             ## 🚀 Standalone Executables - Zero Dependencies
             
-            **Linux Server**: Fully static MUSL binary - works on ANY x86_64 Linux
-            **Windows Client**: Fully static binary - no VC++ Redistributable needed
+            ### Linux Server
+            - **File**: `slipstream-server-linux-x64-static.tar.gz`
+            - **Static MUSL binary** - works on ANY x86_64 Linux
+            - **No dependencies** required to run
             
-            ### 📦 Downloads
-            - `slipstream-server-linux-x64-static.tar.gz`
-            - `slipstream-client-windows-x64-static.zip`
+            ### Windows Client
+            - **File**: `slipstream-client-windows-x64-static.zip`
+            - **Static binary** - no VC++ Redistributable needed
+            - **No dependencies** required to run
             
-            ### 🔧 Quick Start
+            ### Quick Start
             1. Download and extract
             2. Edit configuration file
             3. Run startup script
-            
-            No installation or compilation required!
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
