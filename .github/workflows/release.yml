@@ -7,157 +7,60 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          # Linux - Static MUSL build
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            artifact_name: slipstream-server
-            asset_name: slipstream-server-linux-x64-static
-            package: slipstream-server
-          
-          # Windows - Static build
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: slipstream-client.exe
-            asset_name: slipstream-client-windows-x64-static
-            package: slipstream-client
-
+  build-linux:
+    name: Build Linux Server (Static)
+    runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
+    
     steps:
+      - name: Install build dependencies
+        run: |
+          apk add --no-cache \
+            git \
+            cmake \
+            make \
+            musl-dev \
+            openssl-dev \
+            openssl-libs-static \
+            pkgconfig \
+            bash
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # ===== LINUX BUILD =====
-      - name: Install Linux MUSL dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake pkg-config musl-tools musl-dev
-          
-          # Install static OpenSSL for MUSL
-          wget https://www.openssl.org/source/openssl-3.0.13.tar.gz
-          tar xzf openssl-3.0.13.tar.gz
-          cd openssl-3.0.13
-          CC=musl-gcc ./Configure no-shared no-async --prefix=/usr/local/musl --openssldir=/usr/local/musl/ssl linux-x86_64
-          make -j$(nproc)
-          sudo make install
-          cd ..
-
-      - name: Build picoquic (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build picoquic
         run: |
           chmod +x scripts/build_picoquic.sh
           ./scripts/build_picoquic.sh
 
-      - name: Set environment (Linux MUSL)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Set environment for static build
         run: |
-          echo "OPENSSL_DIR=/usr/local/musl" >> $GITHUB_ENV
           echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
-          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
           echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
 
-      # ===== WINDOWS BUILD =====
-      - name: Install Windows dependencies
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
+      - name: Build server
         run: |
-          # Install vcpkg for OpenSSL
-          git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
-          cd C:\vcpkg
-          .\bootstrap-vcpkg.bat
-          .\vcpkg integrate install
-          .\vcpkg install openssl:x64-windows-static
-          
-      - name: Build picoquic (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          # Build picoquic using CMake on Windows
-          $PICOQUIC_DIR = "$PWD\vendor\picoquic"
-          $BUILD_DIR = "$PWD\.picoquic-build"
-          
-          # Configure with CMake
-          cmake -S $PICOQUIC_DIR -B $BUILD_DIR `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DPICOQUIC_FETCH_PTLS=ON `
-            -A x64
-          
-          # Build
-          cmake --build $BUILD_DIR --config Release
+          cargo build --release --target x86_64-unknown-linux-musl -p slipstream-server
 
-      - name: Set environment (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static" >> $env:GITHUB_ENV
-          echo "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
-          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
-          echo "VCPKGRS_DYNAMIC=0" >> $env:GITHUB_ENV
-          echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
-          echo "PICOQUIC_AUTO_BUILD=0" >> $env:GITHUB_ENV
-          echo "PICOQUIC_BUILD_DIR=$PWD\.picoquic-build" >> $env:GITHUB_ENV
-          echo "PICOQUIC_DIR=$PWD\vendor\picoquic" >> $env:GITHUB_ENV
-
-      # ===== RUST BUILD =====
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache vcpkg (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: actions/cache@v4
-        with:
-          path: C:\vcpkg\installed
-          key: ${{ runner.os }}-vcpkg-openssl-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build Rust binary (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo build --release --target ${{ matrix.target }} -p ${{ matrix.package }}
-
-      - name: Build Rust binary (Windows)
-        if: matrix.os == 'windows-latest'
-        run: cargo build --release --target ${{ matrix.target }} -p ${{ matrix.package }}
-
-      # ===== VERIFICATION =====
-      - name: Verify static linking (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Verify static linking
         run: |
           echo "=== Binary information ==="
-          file target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-          echo -e "\n=== Dynamic dependencies (should show none or just linux-vdso) ==="
-          ldd target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || echo "✓ Fully static binary!"
+          file target/x86_64-unknown-linux-musl/release/slipstream-server
+          echo -e "\n=== Checking dependencies ==="
+          ldd target/x86_64-unknown-linux-musl/release/slipstream-server || echo "✓ Fully static!"
+          echo -e "\n=== Binary size ==="
+          ls -lh target/x86_64-unknown-linux-musl/release/slipstream-server
 
-      - name: Verify binary (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          echo "=== Binary information ==="
-          Get-Item "target\${{ matrix.target }}\release\${{ matrix.artifact_name }}"
-
-      # ===== PACKAGING =====
-      - name: Create release package (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Create release package
         run: |
           mkdir -p release/slipstream-server
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} release/slipstream-server/
-          strip release/slipstream-server/${{ matrix.artifact_name }}
+          cp target/x86_64-unknown-linux-musl/release/slipstream-server release/slipstream-server/
+          strip release/slipstream-server/slipstream-server
           
           cat > release/slipstream-server/server.conf << 'EOF'
           # Slipstream Server Configuration
@@ -170,7 +73,21 @@ jobs:
           
           cat > release/slipstream-server/start-server.sh << 'EOF'
           #!/bin/bash
+          set -e
+          
+          if [ ! -f server.conf ]; then
+              echo "Error: server.conf not found"
+              exit 1
+          fi
+          
           source server.conf
+          
+          echo "Starting Slipstream Server..."
+          echo "  Domain: ${DOMAIN}"
+          echo "  DNS Port: ${DNS_LISTEN_PORT}"
+          echo "  Target: ${TARGET_ADDRESS}"
+          echo ""
+          
           ./slipstream-server \
             --dns-listen-port ${DNS_LISTEN_PORT} \
             --target-address ${TARGET_ADDRESS} \
@@ -180,67 +97,265 @@ jobs:
           EOF
           chmod +x release/slipstream-server/start-server.sh
           
-          cat > release/slipstream-server/README.md << 'EOF'
-          # Slipstream Server (Linux x64 - Fully Static)
+          cat > release/slipstream-server/generate-cert.sh << 'EOF'
+          #!/bin/bash
+          # Generate self-signed certificate for testing
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout key.pem -out cert.pem -days 365 \
+            -subj "/CN=slipstream" \
+            -addext "subjectAltName=DNS:tunnel.example.com"
           
-          ✅ **Zero dependencies - runs on any x86_64 Linux**
+          echo "Generated cert.pem and key.pem"
+          EOF
+          chmod +x release/slipstream-server/generate-cert.sh
+          
+          cat > release/slipstream-server/README.md << 'EOF'
+          # Slipstream Server (Linux x86_64 - Fully Static)
+          
+          ✅ **Zero dependencies - runs on any x86_64 Linux distribution**
+          
+          Tested on: Ubuntu, Debian, Alpine, CentOS, Fedora, Arch, etc.
           
           ## Quick Start
-          1. Generate certificates (one-time):
-             ```bash
-             openssl req -x509 -newkey rsa:2048 -nodes \
-               -keyout key.pem -out cert.pem -days 365 \
-               -subj "/CN=slipstream"
-             ```
           
-          2. Edit `server.conf`:
-             - DOMAIN: Your tunnel domain
-             - DNS_LISTEN_PORT: 53 (requires root) or 8853 for testing
-             - TARGET_ADDRESS: Where to forward traffic (e.g., 127.0.0.1:5201)
+          ### 1. Generate TLS Certificates
+          ```bash
+          ./generate-cert.sh
+          ```
           
-          3. Run the server:
-             ```bash
-             sudo ./start-server.sh
-             ```
-             (Use sudo if DNS_LISTEN_PORT=53)
+          Or manually:
+          ```bash
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout key.pem -out cert.pem -days 365 \
+            -subj "/CN=slipstream"
+          ```
           
-          ## systemd Service (Optional)
-          Create `/etc/systemd/system/slipstream.service`:
+          ### 2. Configure Server
+          Edit `server.conf`:
+          ```bash
+          DOMAIN=tunnel.example.com      # Your tunnel domain
+          DNS_LISTEN_PORT=53             # 53 for production, 8853 for testing
+          TARGET_ADDRESS=127.0.0.1:5201  # Where to forward traffic
+          CERT_PATH=./cert.pem           # Path to certificate
+          KEY_PATH=./key.pem             # Path to private key
+          ```
+          
+          ### 3. Run Server
+          ```bash
+          # For testing (non-privileged port)
+          # Set DNS_LISTEN_PORT=8853 in server.conf
+          ./start-server.sh
+          
+          # For production (port 53, requires root)
+          sudo ./start-server.sh
+          ```
+          
+          ## Systemd Service (Production)
+          
+          1. Copy files to system location:
+          ```bash
+          sudo mkdir -p /opt/slipstream
+          sudo cp -r * /opt/slipstream/
+          sudo chmod +x /opt/slipstream/*.sh
+          ```
+          
+          2. Create service file `/etc/systemd/system/slipstream.service`:
           ```ini
           [Unit]
-          Description=Slipstream DNS Tunnel
-          After=network.target
+          Description=Slipstream DNS Tunnel Server
+          After=network-online.target
+          Wants=network-online.target
           
           [Service]
           Type=simple
+          User=root
           WorkingDirectory=/opt/slipstream
           ExecStart=/opt/slipstream/start-server.sh
           Restart=always
+          RestartSec=10
+          
+          # Security hardening
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=strict
+          ProtectHome=true
+          ReadWritePaths=/opt/slipstream
           
           [Install]
           WantedBy=multi-user.target
           ```
           
-          Then: `sudo systemctl enable --now slipstream`
+          3. Enable and start:
+          ```bash
+          sudo systemctl daemon-reload
+          sudo systemctl enable slipstream
+          sudo systemctl start slipstream
+          sudo systemctl status slipstream
+          ```
+          
+          ## DNS Configuration
+          
+          For clients to reach your server, configure DNS:
+          - **A record**: `tunnel.example.com` → `YOUR_SERVER_IP`
+          - **NS record**: Delegate subdomain to your server (optional)
+          
+          ## Firewall
+          
+          Open DNS port:
+          ```bash
+          # UFW
+          sudo ufw allow 53/udp
+          
+          # iptables
+          sudo iptables -A INPUT -p udp --dport 53 -j ACCEPT
+          ```
+          
+          ## Troubleshooting
+          
+          Check if server is listening:
+          ```bash
+          sudo netstat -ulnp | grep slipstream
+          # or
+          sudo ss -ulnp | grep slipstream
+          ```
+          
+          Test DNS response:
+          ```bash
+          dig @localhost -p 53 test.tunnel.example.com
+          ```
+          
+          View logs (if using systemd):
+          ```bash
+          sudo journalctl -u slipstream -f
+          ```
+          
+          ## Architecture
+          
+          This binary is statically compiled with:
+          - MUSL libc (no glibc dependency)
+          - Static OpenSSL
+          - Static picoquic/picotls
+          
+          File size: ~10MB (stripped)
           EOF
           
           cd release
           tar -czf slipstream-server-linux-x64-static.tar.gz slipstream-server/
 
-      - name: Create release package (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slipstream-server-linux-x64-static
+          path: release/*.tar.gz
+
+  build-windows:
+    name: Build Windows Client (Static)
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install vcpkg
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path release/slipstream-client
-          Copy-Item "target\${{ matrix.target }}\release\${{ matrix.artifact_name }}" "release\slipstream-client\"
+          git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+          cd C:\vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg integrate install
+
+      - name: Install OpenSSL (static)
+        shell: pwsh
+        run: |
+          cd C:\vcpkg
+          .\vcpkg install openssl:x64-windows-static
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: windows-vcpkg-openssl-static-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build picoquic
+        shell: pwsh
+        run: |
+          $PICOQUIC_DIR = "$PWD\vendor\picoquic"
+          $BUILD_DIR = "$PWD\.picoquic-build"
+          
+          Write-Host "Building picoquic..."
+          cmake -S $PICOQUIC_DIR -B $BUILD_DIR `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DPICOQUIC_FETCH_PTLS=ON `
+            -A x64
+          
+          cmake --build $BUILD_DIR --config Release
+          
+          Write-Host "Picoquic build complete"
+
+      - name: Build client
+        shell: pwsh
+        env:
+          OPENSSL_DIR: C:\vcpkg\installed\x64-windows-static
+          OPENSSL_STATIC: "1"
+          VCPKG_ROOT: C:\vcpkg
+          VCPKGRS_DYNAMIC: "0"
+          RUSTFLAGS: -C target-feature=+crt-static
+          PICOQUIC_AUTO_BUILD: "0"
+        run: |
+          $env:PICOQUIC_BUILD_DIR = "$PWD\.picoquic-build"
+          $env:PICOQUIC_DIR = "$PWD\vendor\picoquic"
+          
+          cargo build --release --target x86_64-pc-windows-msvc -p slipstream-client
+
+      - name: Verify build
+        shell: pwsh
+        run: |
+          Write-Host "=== Binary information ==="
+          Get-Item "target\x86_64-pc-windows-msvc\release\slipstream-client.exe"
+          Write-Host "`n=== File size ==="
+          (Get-Item "target\x86_64-pc-windows-msvc\release\slipstream-client.exe").Length / 1MB
+
+      - name: Create release package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release\slipstream-client
+          Copy-Item "target\x86_64-pc-windows-msvc\release\slipstream-client.exe" "release\slipstream-client\"
           
           @'
           # Slipstream Client Configuration
+          
+          # Server domain (must match server configuration)
           DOMAIN=tunnel.example.com
+          
+          # DNS resolver address (your server IP:PORT)
           RESOLVER=YOUR_SERVER_IP:53
+          
+          # Local TCP listening port for SOCKS5 proxy
           TCP_LISTEN_PORT=7000
+          
+          # Congestion control algorithm (dcubic or bbr)
           CONGESTION_CONTROL=dcubic
+          
+          # Optional: Certificate pinning (uncomment and set path)
           # CERT_PATH=cert.pem
+          
+          # Optional: Authoritative mode (high performance, only if you control DNS path)
           # AUTHORITATIVE=false
           '@ | Out-File -FilePath "release\slipstream-client\client.conf" -Encoding UTF8
           
@@ -248,14 +363,41 @@ jobs:
           @echo off
           setlocal EnableDelayedExpansion
           
-          echo Loading Slipstream Client Configuration...
+          title Slipstream DNS Tunnel Client
+          
+          echo ================================================
+          echo   Slipstream DNS Tunnel Client
+          echo ================================================
           echo.
           
-          for /f "tokens=1,2 delims==" %%a in (client.conf) do (
+          if not exist client.conf (
+              echo Error: client.conf not found!
+              pause
+              exit /b 1
+          )
+          
+          echo Loading configuration...
+          
+          for /f "usebackq tokens=1,2 delims==" %%a in ("client.conf") do (
               set "line=%%a"
-              if "!line:~0,1!" NEQ "#" (
-                  set "%%a=%%b"
+              set "line=!line: =!"
+              if not "!line:~0,1!"=="#" (
+                  if not "!line!"=="" (
+                      set "%%a=%%b"
+                  )
               )
+          )
+          
+          if "%DOMAIN%"=="" (
+              echo Error: DOMAIN not set in client.conf
+              pause
+              exit /b 1
+          )
+          
+          if "%RESOLVER%"=="" (
+              echo Error: RESOLVER not set in client.conf
+              pause
+              exit /b 1
           )
           
           set "CMD=slipstream-client.exe --domain %DOMAIN% --resolver %RESOLVER% --tcp-listen-port %TCP_LISTEN_PORT%"
@@ -273,88 +415,148 @@ jobs:
           
           if "%AUTHORITATIVE%"=="true" (
               set "CMD=!CMD! --authoritative"
-              echo Authoritative mode: ENABLED
+              echo WARNING: Authoritative mode enabled
           )
           
           echo.
           echo Configuration:
-          echo   Domain: %DOMAIN%
-          echo   Resolver: %RESOLVER%
-          echo   Listen Port: %TCP_LISTEN_PORT%
-          echo   Congestion Control: %CONGESTION_CONTROL%
+          echo   Domain         : %DOMAIN%
+          echo   Resolver       : %RESOLVER%
+          echo   Listen Port    : %TCP_LISTEN_PORT%
+          echo   Congestion Ctrl: %CONGESTION_CONTROL%
           echo.
-          echo Starting Slipstream Client...
+          echo Starting client...
+          echo Connect applications to SOCKS5 proxy: 127.0.0.1:%TCP_LISTEN_PORT%
           echo.
+          echo Press Ctrl+C to stop
+          echo.
+          
           %CMD%
           '@ | Out-File -FilePath "release\slipstream-client\start-client.bat" -Encoding ASCII
           
           @'
           # Slipstream Client (Windows x64 - Fully Static)
           
-          ✅ **Zero dependencies - No Visual C++ Redistributable needed**
+          ✅ **Zero dependencies - No Visual C++ Redistributable required**
           
           ## Quick Start
           
-          1. **Configure** - Edit `client.conf`:
-             ```
-             DOMAIN=tunnel.example.com      # Must match server
-             RESOLVER=1.2.3.4:53            # Your server IP and port
-             TCP_LISTEN_PORT=7000           # Local listening port
-             ```
+          ### 1. Configure
+          Edit `client.conf`:
+          ```
+          DOMAIN=tunnel.example.com      # Must match your server
+          RESOLVER=203.0.113.10:53       # Your server's IP and DNS port
+          TCP_LISTEN_PORT=7000           # Local SOCKS5 proxy port
+          ```
           
-          2. **Run** - Double-click `start-client.bat` or from command line:
-             ```
-             start-client.bat
-             ```
+          ### 2. Run
+          Double-click `start-client.bat`
           
-          3. **Connect** - Configure your applications to use:
-             - SOCKS5 Proxy: `127.0.0.1:7000`
+          ### 3. Configure Applications
+          Set applications to use SOCKS5 proxy:
+          - **Host**: `127.0.0.1`
+          - **Port**: `7000` (or your configured port)
           
-          ## Testing Connection
+          ## Testing
           
+          Test with curl:
           ```cmd
           curl --proxy socks5://127.0.0.1:7000 http://example.com
           ```
           
-          ## Advanced Options
+          Test with Firefox:
+          1. Settings → Network Settings
+          2. Manual proxy configuration
+          3. SOCKS Host: `127.0.0.1`, Port: `7000`
+          4. SOCKS v5
           
-          ### Certificate Pinning (Recommended)
-          1. Copy server's `cert.pem` to this folder
-          2. Uncomment `CERT_PATH=cert.pem` in `client.conf`
+          ## Advanced Configuration
           
-          ### Authoritative Mode (High Performance)
-          - Only use if you control the DNS resolver path
-          - Uncomment `AUTHORITATIVE=true` in `client.conf`
-          - Provides 2-3x better performance
-          - Higher detection risk
+          ### Certificate Pinning (Recommended for Security)
+          1. Get `cert.pem` from your server
+          2. Copy it to this folder
+          3. Edit `client.conf`, uncomment: `CERT_PATH=cert.pem`
+          
+          ### Authoritative Mode (Performance)
+          ⚠️ **Only use if you directly control the DNS resolver**
+          
+          Benefits:
+          - 2-3x better throughput
+          - Lower latency
+          
+          Risks:
+          - High QPS to resolver
+          - More detectable
+          - Can overwhelm public resolvers
+          
+          Enable by uncommenting in `client.conf`:
+          ```
+          AUTHORITATIVE=true
+          ```
           
           ### Congestion Control
-          - `dcubic` (default): Balanced performance
-          - `bbr`: Better for high-latency networks
+          - `dcubic` (default): Balanced, good for most networks
+          - `bbr`: Better for high-latency or lossy networks
           
-          ## Firewall
-          Windows Defender may prompt on first run. Allow network access.
+          ## Windows Firewall
+          
+          On first run, Windows Defender Firewall will prompt.
+          Click "Allow access" for private/public networks.
+          
+          ## Running as Service
+          
+          To run automatically on startup:
+          
+          1. Download NSSM: https://nssm.cc/download
+          2. Extract `nssm.exe` to this folder
+          3. Run as Administrator:
+          ```cmd
+          nssm install SlipstreamClient "%CD%\start-client.bat"
+          nssm set SlipstreamClient AppDirectory "%CD%"
+          nssm start SlipstreamClient
+          ```
           
           ## Troubleshooting
+          
+          **"Error: DOMAIN not set"**
+          - Check `client.conf` exists and has proper format
+          
+          **Connection timeout**
           - Verify `RESOLVER` IP is correct
-          - Check server is running and accessible
-          - Ensure port 7000 is not already in use
-          - Try running as Administrator if needed
+          - Check server is running: `nslookup test.tunnel.example.com SERVER_IP`
+          - Check firewall allows outbound UDP on port 53
+          
+          **Port already in use**
+          - Change `TCP_LISTEN_PORT` in `client.conf`
+          - Check: `netstat -ano | findstr :7000`
+          
+          **Slow performance**
+          - Try `CONGESTION_CONTROL=bbr`
+          - Consider enabling `AUTHORITATIVE=true` if applicable
+          
+          ## Architecture
+          
+          This binary is statically compiled with:
+          - MSVC runtime (CRT) statically linked
+          - Static OpenSSL
+          - Static picoquic/picotls
+          
+          No DLL dependencies required!
+          
+          File size: ~8-10MB
           '@ | Out-File -FilePath "release\slipstream-client\README.md" -Encoding UTF8
           
           Compress-Archive -Path "release\slipstream-client" -DestinationPath "release\slipstream-client-windows-x64-static.zip"
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
-          path: |
-            release/*.tar.gz
-            release/*.zip
+          name: slipstream-client-windows-x64-static
+          path: release/*.zip
 
   create-release:
     name: Create GitHub Release
-    needs: build
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     
@@ -376,5 +578,27 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          body: |
+            ## Slipstream Rust - Standalone Binaries
+            
+            ### 📦 Downloads
+            
+            - **Linux Server**: `slipstream-server-linux-x64-static.tar.gz`
+              - Fully static binary (MUSL)
+              - Runs on any x86_64 Linux distribution
+              - No dependencies required
+            
+            - **Windows Client**: `slipstream-client-windows-x64-static.zip`
+              - Fully static binary
+              - No Visual C++ Redistributable needed
+              - Works on Windows 10/11 x64
+            
+            ### 🚀 Quick Start
+            
+            1. Download and extract the appropriate archive
+            2. Edit the configuration file (`server.conf` or `client.conf`)
+            3. Run the startup script
+            
+            See README.md in each package for detailed instructions.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
