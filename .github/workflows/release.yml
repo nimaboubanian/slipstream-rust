@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
-          # Add edge repository for latest CMake
+          # Add edge repository for latest packages
           echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
           echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
           
@@ -33,12 +33,17 @@ jobs:
             openssl-libs-static \
             pkgconfig \
             bash \
-            perl
+            perl \
+            file \
+            binutils
 
-      - name: Verify CMake version
+      - name: Verify tools
         run: |
-          echo "=== CMake version ==="
+          echo "=== Tool versions ==="
           cmake --version
+          rustc --version
+          cargo --version
+          file --version
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -47,20 +52,15 @@ jobs:
 
       - name: Patch picotls CMake requirement
         run: |
-          # Update the minimum CMake version requirement in picotls
           PICOTLS_CMAKE="vendor/picoquic/picotls/CMakeLists.txt"
           if [ -f "$PICOTLS_CMAKE" ]; then
             sed -i 's/CMAKE_MINIMUM_REQUIRED.*VERSION.*/CMAKE_MINIMUM_REQUIRED(VERSION 3.5)/' "$PICOTLS_CMAKE"
             echo "✓ Patched picotls CMakeLists.txt"
-          else
-            echo "⚠ picotls CMakeLists.txt not found, will be fetched during build"
           fi
 
       - name: Build picoquic
         run: |
           chmod +x scripts/build_picoquic.sh
-          # Set CMake policy to handle older versions
-          export CMAKE_POLICY_VERSION_MINIMUM=3.5
           ./scripts/build_picoquic.sh
 
       - name: Set environment for static build
@@ -76,21 +76,36 @@ jobs:
 
       - name: Verify static linking
         run: |
+          BINARY="target/x86_64-unknown-linux-musl/release/slipstream-server"
+          
           echo "=== Binary information ==="
-          file target/x86_64-unknown-linux-musl/release/slipstream-server
+          file "$BINARY"
+          
           echo ""
-          echo "=== Checking dependencies ==="
-          ldd target/x86_64-unknown-linux-musl/release/slipstream-server 2>&1 || echo "✓ Fully static binary!"
+          echo "=== File size ==="
+          ls -lh "$BINARY"
+          
           echo ""
-          echo "=== Binary size ==="
-          ls -lh target/x86_64-unknown-linux-musl/release/slipstream-server
+          echo "=== Checking dynamic dependencies ==="
+          if ldd "$BINARY" 2>&1 | grep -q "not a dynamic executable"; then
+            echo "✅ SUCCESS: Fully static binary!"
+          else
+            echo "Dynamic dependencies found:"
+            ldd "$BINARY" || true
+          fi
 
       - name: Create release package
         run: |
           mkdir -p release/slipstream-server
           cp target/x86_64-unknown-linux-musl/release/slipstream-server release/slipstream-server/
+          
+          # Strip debug symbols to reduce size
           strip release/slipstream-server/slipstream-server
           
+          echo "=== Stripped binary size ==="
+          ls -lh release/slipstream-server/slipstream-server
+          
+          # Create configuration file
           cat > release/slipstream-server/server.conf << 'EOF'
           # Slipstream Server Configuration
           DOMAIN=tunnel.example.com
@@ -100,12 +115,13 @@ jobs:
           KEY_PATH=./key.pem
           EOF
           
+          # Create startup script
           cat > release/slipstream-server/start-server.sh << 'EOF'
           #!/bin/bash
           set -e
           
           if [ ! -f server.conf ]; then
-              echo "Error: server.conf not found"
+              echo "❌ Error: server.conf not found"
               exit 1
           fi
           
@@ -122,6 +138,14 @@ jobs:
           echo "  Certificate : ${CERT_PATH}"
           echo "  Private Key : ${KEY_PATH}"
           echo ""
+          
+          # Verify certificate files exist
+          if [ ! -f "${CERT_PATH}" ] || [ ! -f "${KEY_PATH}" ]; then
+              echo "❌ Error: Certificate files not found"
+              echo "   Run: ./generate-cert.sh"
+              exit 1
+          fi
+          
           echo "Starting server..."
           echo "Press Ctrl+C to stop"
           echo ""
@@ -135,6 +159,7 @@ jobs:
           EOF
           chmod +x release/slipstream-server/start-server.sh
           
+          # Create certificate generation script
           cat > release/slipstream-server/generate-cert.sh << 'EOF'
           #!/bin/bash
           set -e
@@ -143,8 +168,12 @@ jobs:
           echo ""
           
           if ! command -v openssl &> /dev/null; then
-              echo "Error: openssl command not found"
-              echo "Install: sudo apt-get install openssl (or equivalent)"
+              echo "❌ Error: openssl command not found"
+              echo ""
+              echo "Install OpenSSL:"
+              echo "  Ubuntu/Debian: sudo apt-get install openssl"
+              echo "  CentOS/RHEL:   sudo yum install openssl"
+              echo "  Alpine:        apk add openssl"
               exit 1
           fi
           
@@ -157,79 +186,116 @@ jobs:
           chmod 644 cert.pem
           
           echo ""
-          echo "✓ Certificate generated!"
-          echo "  - cert.pem"
-          echo "  - key.pem"
+          echo "✅ Certificate generated successfully!"
+          echo "   Files: cert.pem, key.pem"
+          echo ""
+          echo "⚠️  This is a self-signed certificate for testing only."
+          echo "   For production, use Let's Encrypt or a proper CA."
           EOF
           chmod +x release/slipstream-server/generate-cert.sh
           
+          # Create README
           cat > release/slipstream-server/README.md << 'EOF'
-          # Slipstream Server (Linux x86_64 Static)
+          # Slipstream Server (Linux x86_64 - Fully Static)
           
-          ✅ **Zero dependencies** - Works on any x86_64 Linux
+          ✅ **Zero dependencies - Runs on ANY x86_64 Linux distribution**
           
-          ## Quick Start
+          ## Quick Start (3 Steps)
           
-          1. **Generate certificates**:
-             ```bash
-             ./generate-cert.sh
-             ```
+          ### 1. Generate Certificates
+          ```bash
+          ./generate-cert.sh
+          ```
           
-          2. **Edit config**:
-             ```bash
-             nano server.conf
-             ```
-             Change `DOMAIN`, `DNS_LISTEN_PORT`, `TARGET_ADDRESS`
+          This creates `cert.pem` and `key.pem` for testing.
           
-          3. **Run**:
-             ```bash
-             sudo ./start-server.sh
-             ```
+          ### 2. Configure
+          Edit `server.conf`:
+          ```bash
+          nano server.conf
+          ```
+          
+          Required settings:
+          - `DOMAIN`: Your tunnel domain (e.g., `tunnel.example.com`)
+          - `DNS_LISTEN_PORT`: `53` for production, `8853` for testing
+          - `TARGET_ADDRESS`: Where to forward traffic (e.g., `127.0.0.1:5201`)
+          
+          ### 3. Run
+          ```bash
+          # Testing (non-privileged port)
+          # Set DNS_LISTEN_PORT=8853 first
+          ./start-server.sh
+          
+          # Production (requires root for port 53)
+          sudo ./start-server.sh
+          ```
           
           ## What You Need Installed
           
-          **To run the server**: NOTHING (fully static binary)
+          ### To Run the Server
+          **NOTHING!** This is a fully static binary.
           
-          **To generate certificates** (one-time): `openssl` command
-          - Ubuntu/Debian: `sudo apt-get install openssl`
-          - CentOS/RHEL: `sudo yum install openssl`
-          - Alpine: `apk add openssl`
+          It will work on:
+          - Ubuntu, Debian, Mint
+          - CentOS, RHEL, Fedora, Rocky, Alma
+          - Alpine, OpenSUSE, Arch
+          - Amazon Linux, Oracle Linux
+          - Any other x86_64 Linux distribution
           
-          ## Configuration
-          
-          Edit `server.conf`:
-          - `DOMAIN`: Your tunnel domain
-          - `DNS_LISTEN_PORT`: 53 (production) or 8853 (testing)
-          - `TARGET_ADDRESS`: Where to forward traffic
-          - `CERT_PATH`, `KEY_PATH`: Certificate files
-          
-          ## Firewall
-          
+          ### To Generate Certificates (One-Time)
+          Only the `openssl` command:
           ```bash
           # Ubuntu/Debian
-          sudo ufw allow 53/udp
+          sudo apt-get install openssl
           
           # CentOS/RHEL/Fedora
+          sudo yum install openssl
+          
+          # Alpine
+          apk add openssl
+          ```
+          
+          ## Firewall Configuration
+          
+          Allow UDP port 53:
+          ```bash
+          # Ubuntu/Debian (UFW)
+          sudo ufw allow 53/udp
+          
+          # CentOS/RHEL/Fedora (firewalld)
           sudo firewall-cmd --permanent --add-port=53/udp
           sudo firewall-cmd --reload
+          
+          # iptables
+          sudo iptables -A INPUT -p udp --dport 53 -j ACCEPT
           ```
           
           ## Testing
           
+          Check if server is listening:
           ```bash
-          # Check if listening
           sudo netstat -ulnp | grep 53
+          # or
+          sudo ss -ulnp | grep 53
+          ```
           
-          # Test DNS
+          Test DNS resolution:
+          ```bash
           dig @localhost -p 53 test.tunnel.example.com
           ```
           
-          ## Production (systemd)
+          ## Production Setup (systemd)
           
-          Create `/etc/systemd/system/slipstream.service`:
+          1. Copy to system location:
+          ```bash
+          sudo mkdir -p /opt/slipstream
+          sudo cp -r * /opt/slipstream/
+          ```
+          
+          2. Create systemd service `/etc/systemd/system/slipstream.service`:
           ```ini
           [Unit]
-          Description=Slipstream DNS Tunnel
+          Description=Slipstream DNS Tunnel Server
           After=network.target
           
           [Service]
@@ -237,21 +303,63 @@ jobs:
           WorkingDirectory=/opt/slipstream
           ExecStart=/opt/slipstream/start-server.sh
           Restart=always
+          RestartSec=10
           
           [Install]
           WantedBy=multi-user.target
           ```
           
-          Then:
+          3. Enable and start:
           ```bash
-          sudo systemctl enable --now slipstream
+          sudo systemctl daemon-reload
+          sudo systemctl enable slipstream
+          sudo systemctl start slipstream
+          sudo systemctl status slipstream
           ```
           
-          Full documentation: https://github.com/Mygod/slipstream-rust
+          ## Troubleshooting
+          
+          **Port 53 requires root**:
+          ```bash
+          sudo ./start-server.sh
+          ```
+          
+          **Certificate errors**:
+          ```bash
+          # Verify files exist
+          ls -l cert.pem key.pem
+          
+          # Regenerate if needed
+          ./generate-cert.sh
+          ```
+          
+          **View logs** (if using systemd):
+          ```bash
+          sudo journalctl -u slipstream -f
+          ```
+          
+          ## Architecture
+          
+          - **Fully static binary** (MUSL libc)
+          - **Static OpenSSL 3.x**
+          - **Static picoquic/picotls**
+          - **No dependencies required**
+          
+          File size: ~8-10MB (stripped)
+          
+          ## Links
+          
+          - Project: https://github.com/Mygod/slipstream-rust
+          - Issues: https://github.com/Mygod/slipstream-rust/issues
           EOF
           
+          # Create tarball
           cd release
           tar -czf slipstream-server-linux-x64-static.tar.gz slipstream-server/
+          
+          echo ""
+          echo "=== Package created ==="
+          ls -lh slipstream-server-linux-x64-static.tar.gz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -272,6 +380,7 @@ jobs:
       - name: Install vcpkg
         shell: pwsh
         run: |
+          Write-Host "Installing vcpkg..."
           git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
           cd C:\vcpkg
           .\bootstrap-vcpkg.bat
@@ -280,6 +389,7 @@ jobs:
       - name: Install OpenSSL (static)
         shell: pwsh
         run: |
+          Write-Host "Installing static OpenSSL..."
           cd C:\vcpkg
           .\vcpkg install openssl:x64-windows-static
 
@@ -313,12 +423,11 @@ jobs:
           cmake -S $PICOQUIC_DIR -B $BUILD_DIR `
             -DCMAKE_BUILD_TYPE=Release `
             -DPICOQUIC_FETCH_PTLS=ON `
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
             -A x64
           
           cmake --build $BUILD_DIR --config Release
           
-          Write-Host "✓ Picoquic built"
+          Write-Host "✅ Picoquic built successfully"
 
       - name: Build client
         shell: pwsh
@@ -333,11 +442,24 @@ jobs:
           $env:PICOQUIC_BUILD_DIR = "$PWD\.picoquic-build"
           $env:PICOQUIC_DIR = "$PWD\vendor\picoquic"
           
+          Write-Host "Building client..."
           cargo build --release --target x86_64-pc-windows-msvc -p slipstream-client
+          
+          Write-Host "✅ Client built successfully"
+
+      - name: Verify build
+        shell: pwsh
+        run: |
+          $binary = Get-Item "target\x86_64-pc-windows-msvc\release\slipstream-client.exe"
+          Write-Host "=== Binary Info ==="
+          Write-Host "Size: $([math]::Round($binary.Length / 1MB, 2)) MB"
+          Write-Host "Path: $($binary.FullName)"
 
       - name: Create release package
         shell: pwsh
         run: |
+          Write-Host "Creating release package..."
+          
           New-Item -ItemType Directory -Force -Path release\slipstream-client
           Copy-Item "target\x86_64-pc-windows-msvc\release\slipstream-client.exe" "release\slipstream-client\"
           
@@ -353,7 +475,7 @@ jobs:
           @echo off
           setlocal EnableDelayedExpansion
           
-          title Slipstream Client
+          title Slipstream DNS Tunnel Client
           
           if not exist client.conf (
               echo Error: client.conf not found
@@ -361,41 +483,69 @@ jobs:
               exit /b 1
           )
           
+          echo ================================================
+          echo   Slipstream DNS Tunnel Client
+          echo ================================================
+          echo.
+          
           for /f "tokens=1,2 delims==" %%a in (client.conf) do (
               set "line=%%a"
-              if not "!line:~0,1!"=="#" (
+              if not "!line:~0,1!"=="#" if not "%%a"=="" (
                   set "%%a=%%b"
               )
           )
           
+          if "%DOMAIN%"=="" (
+              echo Error: DOMAIN not configured in client.conf
+              pause
+              exit /b 1
+          )
+          
+          if "%RESOLVER%"=="YOUR_SERVER_IP:53" (
+              echo Error: Please configure RESOLVER in client.conf
+              pause
+              exit /b 1
+          )
+          
           set "CMD=slipstream-client.exe --domain %DOMAIN% --resolver %RESOLVER% --tcp-listen-port %TCP_LISTEN_PORT% --congestion-control %CONGESTION_CONTROL%"
           
-          echo Starting Slipstream Client...
-          echo Domain: %DOMAIN%
-          echo Resolver: %RESOLVER%
-          echo Port: %TCP_LISTEN_PORT%
+          echo Configuration:
+          echo   Domain     : %DOMAIN%
+          echo   Resolver   : %RESOLVER%
+          echo   Local Port : %TCP_LISTEN_PORT%
+          echo   Algorithm  : %CONGESTION_CONTROL%
           echo.
+          echo Starting client...
+          echo Connect apps to: 127.0.0.1:%TCP_LISTEN_PORT%
+          echo Press Ctrl+C to stop
+          echo.
+          
           %CMD%
           '@ | Out-File -FilePath "release\slipstream-client\start-client.bat" -Encoding ASCII
           
           @'
-          # Slipstream Client (Windows x64 Static)
+          # Slipstream Client (Windows x64 - Fully Static)
           
-          ✅ **Zero dependencies** - No VC++ Redistributable needed
+          ✅ **Zero dependencies - No VC++ Redistributable required**
           
           ## Quick Start
           
           1. **Edit** `client.conf`:
-             - Set `RESOLVER` to your server IP
-             - Set `DOMAIN` to match server
+             - Change `RESOLVER` to your server's IP address
+             - Change `DOMAIN` to match your server
           
           2. **Run** `start-client.bat`
           
-          3. **Connect** apps to SOCKS5: `127.0.0.1:7000`
+          3. **Connect** your applications to SOCKS5 proxy: `127.0.0.1:7000`
           
           ## What You Need Installed
           
-          **NOTHING!** This is a fully static binary.
+          **NOTHING!** This is a fully static binary with no dependencies.
+          
+          Works on:
+          - Windows 10 (x64)
+          - Windows 11 (x64)
+          - Windows Server 2016+ (x64)
           
           ## Testing
           
@@ -403,17 +553,37 @@ jobs:
           curl --proxy socks5://127.0.0.1:7000 http://example.com
           ```
           
-          ## Browser Setup (Firefox)
+          ## Browser Setup
           
-          Settings → Network → Manual proxy:
-          - SOCKS Host: `127.0.0.1`
-          - Port: `7000`
-          - SOCKS v5
+          **Firefox**:
+          1. Settings → Network Settings
+          2. Manual proxy configuration
+          3. SOCKS Host: `127.0.0.1`, Port: `7000`
+          4. SOCKS v5
           
-          Full docs: https://github.com/Mygod/slipstream-rust
+          **Chrome** (use SwitchyOmega extension)
+          
+          ## Firewall
+          
+          Windows Defender Firewall may prompt on first run.
+          Click "Allow access" for the networks you want to use.
+          
+          ## Troubleshooting
+          
+          **"DOMAIN not configured"**: Edit client.conf
+          
+          **Connection timeout**: Check server IP in RESOLVER
+          
+          **Port in use**: Change TCP_LISTEN_PORT in client.conf
+          
+          ## Links
+          
+          Project: https://github.com/Mygod/slipstream-rust
           '@ | Out-File -FilePath "release\slipstream-client\README.md" -Encoding UTF8
           
           Compress-Archive -Path "release\slipstream-client" -DestinationPath "release\slipstream-client-windows-x64-static.zip"
+          
+          Write-Host "✅ Package created"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -441,21 +611,34 @@ jobs:
             artifacts/**/*.zip
           generate_release_notes: true
           body: |
-            ## 📦 Standalone Binaries - Zero Dependencies
+            ## 🚀 Slipstream Rust - Standalone Executables
             
-            ### Linux Server
-            - `slipstream-server-linux-x64-static.tar.gz`
-            - Fully static (MUSL libc)
+            ### ✅ Zero Dependencies Required
+            
+            **Linux Server** (`slipstream-server-linux-x64-static.tar.gz`):
+            - Fully static MUSL binary
             - Works on ANY x86_64 Linux distro
+            - No glibc, OpenSSL, or other libraries needed
             
-            ### Windows Client  
-            - `slipstream-client-windows-x64-static.zip`
-            - Fully static (no VC++ Runtime needed)
-            - Windows 10/11 x64
+            **Windows Client** (`slipstream-client-windows-x64-static.zip`):
+            - Fully static binary
+            - No Visual C++ Redistributable needed
+            - Works on Windows 10/11 x64
             
-            ### What You Need
-            - **Linux**: Nothing (fully static)
-            - **Windows**: Nothing (fully static)
-            - **Certificates**: `openssl` command (one-time setup only)
+            ### 📦 What's Included
+            
+            Each package contains:
+            - Binary executable
+            - Configuration file template
+            - Startup script
+            - Comprehensive README
+            
+            ### 🔧 Installation
+            
+            1. Download and extract
+            2. Edit configuration file
+            3. Run startup script
+            
+            That's it! No compilation or dependencies needed.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
