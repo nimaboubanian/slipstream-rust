@@ -674,36 +674,33 @@ jobs:
   build-linux-server-aarch64:
     name: Build Linux Server ARM64 (Static)
     runs-on: ubuntu-latest
-    container:
-      image: rust:alpine
 
     steps:
       - name: Install build dependencies
         run: |
-          echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
-          echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
-
-          apk update
-          apk add --no-cache \
+          sudo apt-get update
+          sudo apt-get install -y \
             git \
             cmake \
             make \
             gcc \
             g++ \
             musl-dev \
-            linux-headers \
-            openssl-dev \
-            openssl-libs-static \
-            pkgconfig \
+            musl-tools \
+            linux-libc-dev \
+            libssl-dev \
+            pkg-config \
             bash \
             perl \
             file \
             binutils \
-            aarch64-none-elf-gcc \
-            aarch64-none-elf-binutils
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu
 
-      - name: Install Rust aarch64 target
+      - name: Install Rust toolchain
         run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustup target add aarch64-unknown-linux-musl
 
       - name: Checkout code
@@ -725,17 +722,15 @@ jobs:
 
           echo "✅ Cloned picotls with submodules"
 
-          # Build picotls libraries for aarch64
+          # Build picotls libraries for aarch64 using native musl-gcc
           mkdir -p /tmp/picotls-build/picotls-build
           cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_C_COMPILER=aarch64-none-elf-gcc \
-            -DCMAKE_AR=/usr/bin/ar \
-            -DCMAKE_STRIP=/usr/bin/strip \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DOPENSSL_ROOT_DIR=/usr \
-            -DOPENSSL_LIBRARIES=/usr/lib
+            -DOPENSSL_LIBRARIES=/usr/lib/x86_64-linux-gnu
 
           # Build only the library targets, not tests
           cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
@@ -758,9 +753,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_C_COMPILER=aarch64-none-elf-gcc \
-            -DCMAKE_AR=/usr/bin/ar \
-            -DCMAKE_STRIP=/usr/bin/strip \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DPICOQUIC_FETCH_PTLS=OFF \
             -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
             -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
@@ -796,14 +789,15 @@ jobs:
 
       - name: Set environment for static build
         run: |
-          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=/usr/lib" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
           echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
           echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
           echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
           echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
-          echo "CC_aarch64_unknown_linux_musl=aarch64-none-elf-gcc" >> $GITHUB_ENV
-          echo "AR_aarch64_unknown_linux_musl=aarch64-none-elf-ar" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_musl=aarch64-linux-musl-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc" >> $GITHUB_ENV
 
       - name: Build server (aarch64)
         run: |
@@ -824,7 +818,7 @@ jobs:
 
           echo ""
           echo "=== Stripping debug symbols ==="
-          aarch64-none-elf-strip "$BINARY"
+          aarch64-linux-gnu-strip "$BINARY"
           echo "Final size:"
           ls -lh "$BINARY"
 
@@ -961,36 +955,33 @@ jobs:
   build-linux-client-aarch64:
     name: Build Linux Client ARM64 (Static)
     runs-on: ubuntu-latest
-    container:
-      image: rust:alpine
 
     steps:
       - name: Install build dependencies
         run: |
-          echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
-          echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
-
-          apk update
-          apk add --no-cache \
+          sudo apt-get update
+          sudo apt-get install -y \
             git \
             cmake \
             make \
             gcc \
             g++ \
             musl-dev \
-            linux-headers \
-            openssl-dev \
-            openssl-libs-static \
-            pkgconfig \
+            musl-tools \
+            linux-libc-dev \
+            libssl-dev \
+            pkg-config \
             bash \
             perl \
             file \
             binutils \
-            aarch64-none-elf-gcc \
-            aarch64-none-elf-binutils
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu
 
-      - name: Install Rust aarch64 target
+      - name: Install Rust toolchain
         run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustup target add aarch64-unknown-linux-musl
 
       - name: Checkout code
@@ -1012,17 +1003,15 @@ jobs:
 
           echo "✅ Cloned picotls with submodules"
 
-          # Build picotls libraries for aarch64
+          # Build picotls libraries for aarch64 using native musl-gcc
           mkdir -p /tmp/picotls-build/picotls-build
           cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_C_COMPILER=aarch64-none-elf-gcc \
-            -DCMAKE_AR=/usr/bin/ar \
-            -DCMAKE_STRIP=/usr/bin/strip \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DOPENSSL_ROOT_DIR=/usr \
-            -DOPENSSL_LIBRARIES=/usr/lib
+            -DOPENSSL_LIBRARIES=/usr/lib/x86_64-linux-gnu
 
           # Build only the library targets, not tests
           cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
@@ -1045,9 +1034,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_C_COMPILER=aarch64-none-elf-gcc \
-            -DCMAKE_AR=/usr/bin/ar \
-            -DCMAKE_STRIP=/usr/bin/strip \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DPICOQUIC_FETCH_PTLS=OFF \
             -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
             -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
@@ -1083,14 +1070,15 @@ jobs:
 
       - name: Set environment for static build
         run: |
-          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=/usr/lib" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
           echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
           echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
           echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
           echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
-          echo "CC_aarch64_unknown_linux_musl=aarch64-none-elf-gcc" >> $GITHUB_ENV
-          echo "AR_aarch64_unknown_linux_musl=aarch64-none-elf-ar" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_musl=aarch64-linux-musl-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc" >> $GITHUB_ENV
 
       - name: Build client (aarch64)
         run: |
@@ -1111,7 +1099,7 @@ jobs:
 
           echo ""
           echo "=== Stripping debug symbols ==="
-          aarch64-none-elf-strip "$BINARY"
+          aarch64-linux-gnu-strip "$BINARY"
           echo "Final size:"
           ls -lh "$BINARY"
 
