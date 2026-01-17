@@ -45,25 +45,23 @@ jobs:
         run: |
           echo "Pre-fetching and building picotls..."
 
-          # Clone picotls to a temporary location
-          mkdir -p /tmp/picotls-build/picotls
-          git clone --depth 1 https://github.com/h2o/picotls.git /tmp/picotls-build/picotls
+          # Clone picotls with submodules (includes picotest)
+          mkdir -p /tmp/picotls-build
+          git clone --depth 1 --recurse-submodules https://github.com/h2o/picotls.git /tmp/picotls-build/picotls
 
-          # Patch the CMakeLists.txt to disable tests and allow CMake 3.5
+          # Patch the CMakeLists.txt to allow CMake 3.5
           cd /tmp/picotls-build/picotls
           sed -i 's/CMAKE_MINIMUM_REQUIRED(VERSION [0-9.]*)/CMAKE_MINIMUM_REQUIRED(VERSION 3.5)/' CMakeLists.txt
-          sed -i 's/^ADD_SUBPROJECT_IF_EXIST(test)/# ADD_SUBPROJECT_IF_EXIST(test)/' CMakeLists.txt
 
-          echo "✅ Patched picotls CMakeLists.txt"
+          echo "✅ Cloned picotls with submodules"
           head -n 5 CMakeLists.txt
 
-          # Build picotls (without tests)
+          # Build picotls libraries (tests will be built but we only use the libs)
           mkdir -p /tmp/picotls-build/picotls-build
           cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENSSL_ROOT_DIR=/usr \
-            -DOPENSSL_LIBRARIES=/usr/lib \
-            -DBUILD_TESTS=OFF
+            -DOPENSSL_LIBRARIES=/usr/lib
 
           cmake --build /tmp/picotls-build/picotls-build
 
@@ -332,25 +330,23 @@ jobs:
         run: |
           echo "Pre-fetching and building picotls..."
 
-          # Clone picotls to a temporary location
-          mkdir -p /tmp/picotls-build/picotls
-          git clone --depth 1 https://github.com/h2o/picotls.git /tmp/picotls-build/picotls
+          # Clone picotls with submodules (includes picotest)
+          mkdir -p /tmp/picotls-build
+          git clone --depth 1 --recurse-submodules https://github.com/h2o/picotls.git /tmp/picotls-build/picotls
 
-          # Patch the CMakeLists.txt to disable tests and allow CMake 3.5
+          # Patch the CMakeLists.txt to allow CMake 3.5
           cd /tmp/picotls-build/picotls
           sed -i 's/CMAKE_MINIMUM_REQUIRED(VERSION [0-9.]*)/CMAKE_MINIMUM_REQUIRED(VERSION 3.5)/' CMakeLists.txt
-          sed -i 's/^ADD_SUBPROJECT_IF_EXIST(test)/# ADD_SUBPROJECT_IF_EXIST(test)/' CMakeLists.txt
 
-          echo "✅ Patched picotls CMakeLists.txt"
+          echo "✅ Cloned picotls with submodules"
           head -n 5 CMakeLists.txt
 
-          # Build picotls (without tests)
+          # Build picotls libraries (tests will be built but we only use the libs)
           mkdir -p /tmp/picotls-build/picotls-build
           cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENSSL_ROOT_DIR=/usr \
-            -DOPENSSL_LIBRARIES=/usr/lib \
-            -DBUILD_TESTS=OFF
+            -DOPENSSL_LIBRARIES=/usr/lib
 
           cmake --build /tmp/picotls-build/picotls-build
 
@@ -580,22 +576,20 @@ jobs:
         run: |
           Write-Host "Pre-fetching and building picotls..."
 
-          New-Item -ItemType Directory -Force -Path "C:\tmp\picotls-build\picotls"
-          git clone --depth 1 https://github.com/h2o/picotls.git C:\tmp\picotls-build\picotls
+          New-Item -ItemType Directory -Force -Path "C:\tmp\picotls-build"
+          git clone --depth 1 --recurse-submodules https://github.com/h2o/picotls.git C:\tmp\picotls-build\picotls
 
           cd C:\tmp\picotls-build\picotls
           (Get-Content CMakeLists.txt) -replace 'CMAKE_MINIMUM_REQUIRED\(VERSION [0-9.]+\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)' | Set-Content CMakeLists.txt
-          (Get-Content CMakeLists.txt) -replace 'ADD_SUBPROJECT_IF_EXIST\(test\)', '# ADD_SUBPROJECT_IF_EXIST(test)' | Set-Content CMakeLists.txt
 
-          Write-Host "✅ Patched picotls"
+          Write-Host "✅ Cloned picotls with submodules"
           Get-Content CMakeLists.txt -Head 5
 
-          # Build picotls (without tests)
+          # Build picotls libraries
           New-Item -ItemType Directory -Force -Path "C:\tmp\picotls-build\picotls-build"
 
           cmake -S C:\tmp\picotls-build\picotls -B C:\tmp\picotls-build\picotls-build `
             -DCMAKE_BUILD_TYPE=Release `
-            -DBUILD_TESTS=OFF `
             -A x64
 
           cmake --build C:\tmp\picotls-build\picotls-build --config Release
