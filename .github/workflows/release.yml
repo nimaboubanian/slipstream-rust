@@ -82,7 +82,7 @@ jobs:
           cmake -S "${PICOQUIC_DIR}" -B "${BUILD_DIR}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICOQUIC_FETCH_PTLS=OFF \
-            -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls" \
+            -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
             -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
             -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
             -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
@@ -367,7 +367,7 @@ jobs:
           cmake -S "${PICOQUIC_DIR}" -B "${BUILD_DIR}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICOQUIC_FETCH_PTLS=OFF \
-            -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls" \
+            -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
             -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
             -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
             -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
@@ -610,7 +610,7 @@ jobs:
           cmake -S $PICOQUIC_DIR -B $BUILD_DIR `
             -DCMAKE_BUILD_TYPE=Release `
             -DPICOQUIC_FETCH_PTLS=OFF `
-            -DPTLS_INCLUDE_DIR="$PICOQUIC_PATCHED_PTLS\picotls" `
+            -DPTLS_INCLUDE_DIR="$PICOQUIC_PATCHED_PTLS\picotls\include" `
             -DPTLS_CORE_LIBRARY="$PICOQUIC_PATCHED_PTLS_BUILD\picotls-core.lib" `
             -DPTLS_OPENSSL_LIBRARY="$PICOQUIC_PATCHED_PTLS_BUILD\picotls-openssl.lib" `
             -DPTLS_MINICRYPTO_LIBRARY="$PICOQUIC_PATCHED_PTLS_BUILD\picotls-minicrypto.lib" `
