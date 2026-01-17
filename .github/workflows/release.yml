@@ -98,6 +98,8 @@ jobs:
           echo "OPENSSL_LIB_DIR=/usr/lib" >> $GITHUB_ENV
           echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
           echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
+          echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
+          echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
 
       - name: Build server
         run: |
@@ -383,6 +385,8 @@ jobs:
           echo "OPENSSL_LIB_DIR=/usr/lib" >> $GITHUB_ENV
           echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
           echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
+          echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
+          echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
 
       - name: Build client
         run: |
@@ -629,13 +633,14 @@ jobs:
           VCPKGRS_DYNAMIC: "0"
           RUSTFLAGS: -C target-feature=+crt-static
           PICOQUIC_AUTO_BUILD: "0"
+          PICOQUIC_BUILD_DIR: ${{ github.workspace }}\.picoquic-build
+          PICOTLS_INCLUDE_DIR: C:\tmp\picotls-build\picotls\include
         run: |
-          $env:PICOQUIC_BUILD_DIR = "$PWD\.picoquic-build"
           $env:PICOQUIC_DIR = "$PWD\vendor\picoquic"
-          
+
           Write-Host "Building client..."
           cargo build --release --target x86_64-pc-windows-msvc -p slipstream-client
-          
+
           Write-Host "✅ Client built"
 
       - name: Create release package
