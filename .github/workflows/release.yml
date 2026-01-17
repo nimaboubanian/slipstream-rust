@@ -680,12 +680,21 @@ jobs:
         run: |
           sudo dpkg --add-architecture arm64
 
-          # Add Ubuntu ports repository for arm64 packages
-          sudo tee /etc/apt/sources.list.d/ubuntu-ports.list > /dev/null << 'EOF'
+          # Configure apt sources: regular repos for amd64 only, ports.ubuntu.com for arm64
+          sudo tee /etc/apt/sources.list > /dev/null << 'EOF'
+          # Regular Ubuntu repositories (amd64 only)
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse
+          deb [arch=amd64] http://security.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse
+
+          # Ubuntu ports repository (arm64 only)
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-security main restricted universe multiverse
           EOF
+
+          # Clear any additional sources that might cause issues
+          sudo rm -f /etc/apt/sources.list.d/*.list
 
           sudo apt-get update
           sudo apt-get install -y \
@@ -1021,12 +1030,21 @@ jobs:
         run: |
           sudo dpkg --add-architecture arm64
 
-          # Add Ubuntu ports repository for arm64 packages
-          sudo tee /etc/apt/sources.list.d/ubuntu-ports.list > /dev/null << 'EOF'
+          # Configure apt sources: regular repos for amd64 only, ports.ubuntu.com for arm64
+          sudo tee /etc/apt/sources.list > /dev/null << 'EOF'
+          # Regular Ubuntu repositories (amd64 only)
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse
+          deb [arch=amd64] http://security.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse
+
+          # Ubuntu ports repository (arm64 only)
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-security main restricted universe multiverse
           EOF
+
+          # Clear any additional sources that might cause issues
+          sudo rm -f /etc/apt/sources.list.d/*.list
 
           sudo apt-get update
           sudo apt-get install -y \
