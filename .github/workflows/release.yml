@@ -679,6 +679,14 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo dpkg --add-architecture arm64
+
+          # Add Ubuntu ports repository for arm64 packages
+          sudo tee /etc/apt/sources.list.d/ubuntu-ports.list > /dev/null << 'EOF'
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-security main restricted universe multiverse
+          EOF
+
           sudo apt-get update
           sudo apt-get install -y \
             git \
@@ -688,8 +696,9 @@ jobs:
             g++ \
             musl-dev \
             musl-tools \
-            linux-libc-dev \
+            linux-libc-dev:arm64 \
             libssl-dev:arm64 \
+            libc6-dev:arm64 \
             pkg-config \
             bash \
             perl \
@@ -1011,6 +1020,14 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo dpkg --add-architecture arm64
+
+          # Add Ubuntu ports repository for arm64 packages
+          sudo tee /etc/apt/sources.list.d/ubuntu-ports.list > /dev/null << 'EOF'
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-security main restricted universe multiverse
+          EOF
+
           sudo apt-get update
           sudo apt-get install -y \
             git \
@@ -1020,8 +1037,9 @@ jobs:
             g++ \
             musl-dev \
             musl-tools \
-            linux-libc-dev \
+            linux-libc-dev:arm64 \
             libssl-dev:arm64 \
+            libc6-dev:arm64 \
             pkg-config \
             bash \
             perl \
