@@ -1,0 +1,193 @@
+name: Build Release Executables
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux (Ubuntu Server)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: slipstream-server
+            asset_name: slipstream-server-linux-x64
+            build_cmd: cargo build --release -p slipstream-server
+          
+          # Windows (Client)
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: slipstream-client.exe
+            asset_name: slipstream-client-windows-x64.exe
+            build_cmd: cargo build --release -p slipstream-client
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Linux dependencies
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libssl-dev
+
+      # Windows dependencies (MSVC is pre-installed)
+      - name: Install Windows dependencies
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+          
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: ${{ matrix.build_cmd }}
+
+      - name: Create release package (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir -p release/slipstream-server
+          cp target/release/${{ matrix.artifact_name }} release/slipstream-server/
+          
+          # Create config template
+          cat > release/slipstream-server/server.conf << 'EOF'
+          # Slipstream Server Configuration
+          DOMAIN=tunnel.example.com
+          DNS_LISTEN_PORT=53
+          TARGET_ADDRESS=127.0.0.1:5201
+          CERT_PATH=/etc/slipstream/cert.pem
+          KEY_PATH=/etc/slipstream/key.pem
+          EOF
+          
+          # Create startup script
+          cat > release/slipstream-server/start-server.sh << 'EOF'
+          #!/bin/bash
+          source server.conf
+          ./slipstream-server \
+            --dns-listen-port ${DNS_LISTEN_PORT} \
+            --target-address ${TARGET_ADDRESS} \
+            --domain ${DOMAIN} \
+            --cert ${CERT_PATH} \
+            --key ${KEY_PATH}
+          EOF
+          chmod +x release/slipstream-server/start-server.sh
+          
+          # Create README
+          cat > release/slipstream-server/README.md << 'EOF'
+          # Slipstream Server
+          
+          1. Edit server.conf with your settings
+          2. Generate certificates: openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=slipstream"
+          3. Run: ./start-server.sh
+          EOF
+          
+          cd release
+          tar -czf slipstream-server-linux-x64.tar.gz slipstream-server/
+          cd ..
+
+      - name: Create release package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release/slipstream-client
+          Copy-Item "target/release/${{ matrix.artifact_name }}" "release/slipstream-client/"
+          
+          # Create config template
+          @'
+          # Slipstream Client Configuration
+          DOMAIN=tunnel.example.com
+          RESOLVER=YOUR_SERVER_IP:53
+          TCP_LISTEN_PORT=7000
+          CONGESTION_CONTROL=dcubic
+          '@ | Out-File -FilePath "release/slipstream-client/client.conf" -Encoding UTF8
+          
+          # Create startup script
+          @'
+          @echo off
+          setlocal EnableDelayedExpansion
+          
+          for /f "tokens=1,2 delims==" %%a in (client.conf) do (
+              set "%%a=%%b"
+          )
+          
+          set "CMD=slipstream-client.exe --domain %DOMAIN% --resolver %RESOLVER% --tcp-listen-port %TCP_LISTEN_PORT%"
+          
+          if defined CONGESTION_CONTROL (
+              set "CMD=!CMD! --congestion-control %CONGESTION_CONTROL%"
+          )
+          
+          echo Starting Slipstream Client...
+          %CMD%
+          '@ | Out-File -FilePath "release/slipstream-client/start-client.bat" -Encoding ASCII
+          
+          # Create README
+          @'
+          # Slipstream Client
+          
+          1. Edit client.conf with your server details
+          2. Run: start-client.bat
+          3. Connect applications to localhost:7000
+          '@ | Out-File -FilePath "release/slipstream-client/README.md" -Encoding UTF8
+          
+          Compress-Archive -Path "release/slipstream-client" -DestinationPath "release/slipstream-client-windows-x64.zip"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            release/*.tar.gz
+            release/*.zip
+
+  create-release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
