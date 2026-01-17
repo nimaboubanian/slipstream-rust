@@ -680,23 +680,19 @@ jobs:
         run: |
           sudo dpkg --add-architecture arm64
 
-          # Configure apt sources: regular repos for amd64 only, ports.ubuntu.com for arm64
-          sudo tee /etc/apt/sources.list > /dev/null << 'EOF'
-          # Regular Ubuntu repositories (amd64 only)
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse
-          deb [arch=amd64] http://security.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse
-
-          # Ubuntu ports repository (arm64 only)
+          # Add Ubuntu ports repository for arm64 packages
+          sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list > /dev/null << 'EOF'
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-security main restricted universe multiverse
           EOF
 
-          # Clear any additional sources that might cause issues
-          sudo rm -f /etc/apt/sources.list.d/*.list
+          # Update and ignore errors from default repos that don't have arm64
+          sudo apt-get update -o Acquire::Retries=3 || true
 
-          sudo apt-get update
+          # Verify we can access arm64 packages
+          apt-cache show libc6:arm64 >/dev/null || exit 1
+
           sudo apt-get install -y \
             git \
             cmake \
@@ -1030,23 +1026,19 @@ jobs:
         run: |
           sudo dpkg --add-architecture arm64
 
-          # Configure apt sources: regular repos for amd64 only, ports.ubuntu.com for arm64
-          sudo tee /etc/apt/sources.list > /dev/null << 'EOF'
-          # Regular Ubuntu repositories (amd64 only)
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse
-          deb [arch=amd64] http://security.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse
-
-          # Ubuntu ports repository (arm64 only)
+          # Add Ubuntu ports repository for arm64 packages
+          sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list > /dev/null << 'EOF'
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-security main restricted universe multiverse
           EOF
 
-          # Clear any additional sources that might cause issues
-          sudo rm -f /etc/apt/sources.list.d/*.list
+          # Update and ignore errors from default repos that don't have arm64
+          sudo apt-get update -o Acquire::Retries=3 || true
 
-          sudo apt-get update
+          # Verify we can access arm64 packages
+          apt-cache show libc6:arm64 >/dev/null || exit 1
+
           sudo apt-get install -y \
             git \
             cmake \
