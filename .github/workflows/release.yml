@@ -3,8 +3,8 @@ name: Build Release Executables
 on:
   push:
     tags:
-      - 'v*'  # Triggers on version tags like v1.0.0
-  workflow_dispatch:  # Allows manual trigger
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -40,11 +40,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libssl-dev
 
-      # Windows dependencies (MSVC is pre-installed)
-      - name: Install Windows dependencies
+      # Windows - Install OpenSSL via vcpkg
+      - name: Install Windows dependencies (vcpkg)
         if: matrix.os == 'windows-latest'
         run: |
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+          # Install vcpkg
+          git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+          cd C:\vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg integrate install
+          .\vcpkg install openssl:x64-windows-static
+          
+      - name: Set OpenSSL environment variables (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static" >> $env:GITHUB_ENV
+          echo "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_DYNAMIC=0" >> $env:GITHUB_ENV
           
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -69,6 +83,13 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Cache vcpkg (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Build
         run: ${{ matrix.build_cmd }}
 
@@ -78,7 +99,6 @@ jobs:
           mkdir -p release/slipstream-server
           cp target/release/${{ matrix.artifact_name }} release/slipstream-server/
           
-          # Create config template
           cat > release/slipstream-server/server.conf << 'EOF'
           # Slipstream Server Configuration
           DOMAIN=tunnel.example.com
@@ -88,7 +108,6 @@ jobs:
           KEY_PATH=/etc/slipstream/key.pem
           EOF
           
-          # Create startup script
           cat > release/slipstream-server/start-server.sh << 'EOF'
           #!/bin/bash
           source server.conf
@@ -101,13 +120,22 @@ jobs:
           EOF
           chmod +x release/slipstream-server/start-server.sh
           
-          # Create README
           cat > release/slipstream-server/README.md << 'EOF'
-          # Slipstream Server
+          # Slipstream Server (Linux x64)
           
-          1. Edit server.conf with your settings
-          2. Generate certificates: openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=slipstream"
-          3. Run: ./start-server.sh
+          ## Quick Start
+          1. Edit `server.conf` with your domain and target settings
+          2. Generate TLS certificates:
+             ```bash
+             openssl req -x509 -newkey rsa:2048 -nodes \
+               -keyout cert.pem -out cert.pem -days 365 \
+               -subj "/CN=slipstream"
+             ```
+          3. Update CERT_PATH and KEY_PATH in server.conf
+          4. Run: `./start-server.sh`
+          
+          ## Systemd Service
+          See the full installation guide for systemd service setup.
           EOF
           
           cd release
@@ -121,41 +149,83 @@ jobs:
           New-Item -ItemType Directory -Force -Path release/slipstream-client
           Copy-Item "target/release/${{ matrix.artifact_name }}" "release/slipstream-client/"
           
-          # Create config template
           @'
           # Slipstream Client Configuration
           DOMAIN=tunnel.example.com
           RESOLVER=YOUR_SERVER_IP:53
           TCP_LISTEN_PORT=7000
           CONGESTION_CONTROL=dcubic
+          # CERT_PATH=cert.pem
+          # AUTHORITATIVE=false
           '@ | Out-File -FilePath "release/slipstream-client/client.conf" -Encoding UTF8
           
-          # Create startup script
           @'
           @echo off
           setlocal EnableDelayedExpansion
           
+          echo Loading configuration from client.conf...
+          
           for /f "tokens=1,2 delims==" %%a in (client.conf) do (
-              set "%%a=%%b"
+              set "line=%%a"
+              if "!line:~0,1!" NEQ "#" (
+                  set "%%a=%%b"
+              )
           )
           
           set "CMD=slipstream-client.exe --domain %DOMAIN% --resolver %RESOLVER% --tcp-listen-port %TCP_LISTEN_PORT%"
+          
+          if defined CERT_PATH (
+              if exist "%CERT_PATH%" (
+                  set "CMD=!CMD! --cert %CERT_PATH%"
+              )
+          )
           
           if defined CONGESTION_CONTROL (
               set "CMD=!CMD! --congestion-control %CONGESTION_CONTROL%"
           )
           
+          if "%AUTHORITATIVE%"=="true" (
+              set "CMD=!CMD! --authoritative"
+          )
+          
+          echo.
           echo Starting Slipstream Client...
+          echo Command: %CMD%
+          echo.
           %CMD%
           '@ | Out-File -FilePath "release/slipstream-client/start-client.bat" -Encoding ASCII
           
-          # Create README
           @'
-          # Slipstream Client
+          # Slipstream Client (Windows x64)
           
-          1. Edit client.conf with your server details
-          2. Run: start-client.bat
-          3. Connect applications to localhost:7000
+          ## Quick Start
+          1. Edit `client.conf`:
+             - Set DOMAIN to match your server
+             - Set RESOLVER to your server's IP address and port
+             - Optionally adjust TCP_LISTEN_PORT (default: 7000)
+          
+          2. Run `start-client.bat`
+          
+          3. Configure your applications to use SOCKS5 proxy:
+             - Host: 127.0.0.1
+             - Port: 7000 (or your configured port)
+          
+          ## Optional: Certificate Pinning
+          - Copy the server's certificate to this folder
+          - Uncomment and set CERT_PATH in client.conf
+          
+          ## Configuration Options
+          - **DOMAIN**: Server domain name (must match server)
+          - **RESOLVER**: Server IP:PORT for DNS queries
+          - **TCP_LISTEN_PORT**: Local port for incoming connections
+          - **CONGESTION_CONTROL**: bbr or dcubic (default: dcubic)
+          - **CERT_PATH**: Path to server certificate (optional, for strict verification)
+          - **AUTHORITATIVE**: Set to true only if you control the DNS path
+          
+          ## Troubleshooting
+          - Ensure Windows Firewall allows the client
+          - Check that the resolver IP is correct
+          - Verify network connectivity to the server
           '@ | Out-File -FilePath "release/slipstream-client/README.md" -Encoding UTF8
           
           Compress-Archive -Path "release/slipstream-client" -DestinationPath "release/slipstream-client-windows-x64.zip"
