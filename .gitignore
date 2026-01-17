@@ -6,7 +6,7 @@
 /.worktrees/
 .idea/
 __pycache__/
-
+.claude/
 # Rust workspace artifacts
 /target/
 **/*.rs.bk

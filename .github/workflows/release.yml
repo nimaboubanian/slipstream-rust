@@ -710,6 +710,40 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Build OpenSSL for aarch64
+        run: |
+          echo "Building OpenSSL for aarch64 cross-compilation..."
+
+          mkdir -p /tmp/openssl-build
+          cd /tmp/openssl-build
+
+          # Download OpenSSL 3.0.x (stable LTS)
+          curl -fsSL https://www.openssl.org/source/openssl-3.0.15.tar.gz -o openssl.tar.gz
+          tar -xzf openssl.tar.gz
+          cd openssl-3.0.15
+
+          # Configure for cross-compilation to aarch64
+          ./Configure \
+            --prefix=/tmp/openssl-aarch64 \
+            --cross-compile-prefix=aarch64-linux-gnu- \
+            linux-aarch64 \
+            -static \
+            -no-sock \
+            -no-tests \
+            -no-apps \
+            -no-threads \
+            -no-ssl3 \
+            -no-weak-ssl-ciphers \
+            -no-legacy
+
+          # Build and install
+          make -j$(nproc)
+          make install
+
+          echo "✅ OpenSSL built for aarch64"
+          ls -la /tmp/openssl-aarch64/lib/
+          ls -la /tmp/openssl-aarch64/include/openssl/ | head -20
+
       - name: Pre-fetch and patch picotls (aarch64)
         run: |
           echo "Pre-fetching and building picotls for aarch64..."
@@ -724,7 +758,7 @@ jobs:
 
           echo "✅ Cloned picotls with submodules"
 
-          # Build picotls libraries for aarch64 using native musl-gcc
+          # Build picotls libraries for aarch64 using our built OpenSSL
           mkdir -p /tmp/picotls-build/picotls-build
           cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -732,10 +766,10 @@ jobs:
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DOPENSSL_ROOT_DIR=/usr/aarch64-linux-gnu \
-            -DOPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include \
-            -DOPENSSL_LIBRARIES=/usr/aarch64-linux-gnu/lib \
-            -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu \
+            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
+            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
+            -DOPENSSL_LIBRARIES=/tmp/openssl-aarch64/lib/libssl.a\;/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DCMAKE_FIND_ROOT_PATH=/tmp/openssl-aarch64\;/usr/aarch64-linux-gnu \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
@@ -763,10 +797,10 @@ jobs:
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DOPENSSL_ROOT_DIR=/usr/aarch64-linux-gnu \
-            -DOPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include \
-            -DOPENSSL_LIBRARIES=/usr/aarch64-linux-gnu/lib \
-            -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu \
+            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
+            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
+            -DOPENSSL_LIBRARIES=/tmp/openssl-aarch64/lib/libssl.a\;/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DCMAKE_FIND_ROOT_PATH=/tmp/openssl-aarch64\;/usr/aarch64-linux-gnu \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
@@ -805,9 +839,10 @@ jobs:
 
       - name: Set environment for static build
         run: |
-          echo "OPENSSL_DIR=/usr/aarch64-linux-gnu" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=/usr/aarch64-linux-gnu/lib" >> $GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=/tmp/openssl-aarch64" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/tmp/openssl-aarch64/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include" >> $GITHUB_ENV
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
           echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
           echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
           echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
@@ -1007,6 +1042,40 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Build OpenSSL for aarch64
+        run: |
+          echo "Building OpenSSL for aarch64 cross-compilation..."
+
+          mkdir -p /tmp/openssl-build
+          cd /tmp/openssl-build
+
+          # Download OpenSSL 3.0.x (stable LTS)
+          curl -fsSL https://www.openssl.org/source/openssl-3.0.15.tar.gz -o openssl.tar.gz
+          tar -xzf openssl.tar.gz
+          cd openssl-3.0.15
+
+          # Configure for cross-compilation to aarch64
+          ./Configure \
+            --prefix=/tmp/openssl-aarch64 \
+            --cross-compile-prefix=aarch64-linux-gnu- \
+            linux-aarch64 \
+            -static \
+            -no-sock \
+            -no-tests \
+            -no-apps \
+            -no-threads \
+            -no-ssl3 \
+            -no-weak-ssl-ciphers \
+            -no-legacy
+
+          # Build and install
+          make -j$(nproc)
+          make install
+
+          echo "✅ OpenSSL built for aarch64"
+          ls -la /tmp/openssl-aarch64/lib/
+          ls -la /tmp/openssl-aarch64/include/openssl/ | head -20
+
       - name: Pre-fetch and patch picotls (aarch64)
         run: |
           echo "Pre-fetching and building picotls for aarch64..."
@@ -1021,7 +1090,7 @@ jobs:
 
           echo "✅ Cloned picotls with submodules"
 
-          # Build picotls libraries for aarch64 using native musl-gcc
+          # Build picotls libraries for aarch64 using our built OpenSSL
           mkdir -p /tmp/picotls-build/picotls-build
           cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -1029,10 +1098,10 @@ jobs:
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DOPENSSL_ROOT_DIR=/usr/aarch64-linux-gnu \
-            -DOPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include \
-            -DOPENSSL_LIBRARIES=/usr/aarch64-linux-gnu/lib \
-            -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu \
+            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
+            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
+            -DOPENSSL_LIBRARIES=/tmp/openssl-aarch64/lib/libssl.a\;/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DCMAKE_FIND_ROOT_PATH=/tmp/openssl-aarch64\;/usr/aarch64-linux-gnu \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
@@ -1060,10 +1129,10 @@ jobs:
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DOPENSSL_ROOT_DIR=/usr/aarch64-linux-gnu \
-            -DOPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include \
-            -DOPENSSL_LIBRARIES=/usr/aarch64-linux-gnu/lib \
-            -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu \
+            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
+            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
+            -DOPENSSL_LIBRARIES=/tmp/openssl-aarch64/lib/libssl.a\;/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DCMAKE_FIND_ROOT_PATH=/tmp/openssl-aarch64\;/usr/aarch64-linux-gnu \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
@@ -1102,9 +1171,10 @@ jobs:
 
       - name: Set environment for static build
         run: |
-          echo "OPENSSL_DIR=/usr/aarch64-linux-gnu" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=/usr/aarch64-linux-gnu/lib" >> $GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=/usr/aarch64-linux-gnu/include" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=/tmp/openssl-aarch64" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/tmp/openssl-aarch64/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include" >> $GITHUB_ENV
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
           echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
           echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
           echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
