@@ -608,9 +608,18 @@ jobs:
           git clone --depth 1 --recurse-submodules https://github.com/h2o/picotls.git C:\tmp\picotls-build\picotls
 
           cd C:\tmp\picotls-build\picotls
-          (Get-Content CMakeLists.txt) -replace 'CMAKE_MINIMUM_REQUIRED\(VERSION [0-9.]+\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)' | Set-Content CMakeLists.txt
 
-          Write-Host "✅ Cloned picotls with submodules"
+          # Patch CMakeLists.txt for Windows build
+          $content = Get-Content CMakeLists.txt -Raw
+          # Change CMake minimum version
+          $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\(VERSION [0-9.]+\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)'
+          # Make PkgConfig optional (remove REQUIRED)
+          $content = $content -replace 'FIND_PACKAGE\(PkgConfig REQUIRED\)', 'FIND_PACKAGE(PkgConfig)'
+          # Make PKG_CHECK_MODULES conditional
+          $content = $content -replace 'PKG_CHECK_MODULES\((.*?)\)', 'IF(PkgConfig_FOUND)$\nPKG_CHECK_MODULES($1)$\nENDIF()'
+          Set-Content CMakeLists.txt -Value $content -NoNewline
+
+          Write-Host "✅ Patched picotls for Windows"
           Get-Content CMakeLists.txt -Head 5
 
           # Build picotls libraries
@@ -618,8 +627,9 @@ jobs:
 
           cmake -S C:\tmp\picotls-build\picotls -B C:\tmp\picotls-build\picotls-build `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=TRUE `
             -DOPENSSL_ROOT_DIR=C:\vcpkg\installed\x64-windows-static `
+            -DOPENSSL_CRYPTO_LIBRARY=C:\vcpkg\installed\x64-windows-static\lib\libcrypto.lib `
+            -DOPENSSL_SSL_LIBRARY=C:\vcpkg\installed\x64-windows-static\lib\libssl.lib `
             -A x64
 
           cmake --build C:\tmp\picotls-build\picotls-build --config Release
