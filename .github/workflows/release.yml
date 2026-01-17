@@ -618,6 +618,8 @@ jobs:
 
           cmake -S C:\tmp\picotls-build\picotls -B C:\tmp\picotls-build\picotls-build `
             -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=TRUE `
+            -DOPENSSL_ROOT_DIR=C:\vcpkg\installed\x64-windows-static `
             -A x64
 
           cmake --build C:\tmp\picotls-build\picotls-build --config Release
