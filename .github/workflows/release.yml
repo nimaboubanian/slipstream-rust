@@ -736,21 +736,20 @@ jobs:
           tar -xzf openssl.tar.gz
           cd openssl-3.0.15
 
-          # Configure for cross-compilation to aarch64 (static library, minimal features)
-          # Keep async API needed by picotls, disable unnecessary features
+          # Configure for cross-compilation to aarch64
+          # Build static libraries with all standard features
           ./Configure \
             --prefix=/tmp/openssl-aarch64 \
             --cross-compile-prefix=aarch64-linux-gnu- \
             linux-aarch64 \
             no-shared \
             no-sock \
-            no-srtp \
-            no-dso \
-            no-engine \
-            no-asm
+            no-srtp
 
-          # Build and install (library only, skip apps/tests)
-          make -j$(nproc) build_libs
+          # Build libraries
+          make -j$(nproc)
+
+          # Install only the libraries and headers
           make install_sw
 
           echo "✅ OpenSSL built for aarch64"
@@ -1087,21 +1086,20 @@ jobs:
           tar -xzf openssl.tar.gz
           cd openssl-3.0.15
 
-          # Configure for cross-compilation to aarch64 (static library, minimal features)
-          # Keep async API needed by picotls, disable unnecessary features
+          # Configure for cross-compilation to aarch64
+          # Build static libraries with all standard features
           ./Configure \
             --prefix=/tmp/openssl-aarch64 \
             --cross-compile-prefix=aarch64-linux-gnu- \
             linux-aarch64 \
             no-shared \
             no-sock \
-            no-srtp \
-            no-dso \
-            no-engine \
-            no-asm
+            no-srtp
 
-          # Build and install (library only, skip apps/tests)
-          make -j$(nproc) build_libs
+          # Build libraries
+          make -j$(nproc)
+
+          # Install only the libraries and headers
           make install_sw
 
           echo "✅ OpenSSL built for aarch64"
