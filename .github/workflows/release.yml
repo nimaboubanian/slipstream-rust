@@ -92,6 +92,18 @@ jobs:
 
           echo "✅ Picoquic built successfully"
 
+      - name: Copy picotls libraries for Rust build
+        run: |
+          # The Rust build script expects picotls libs in _deps/picotls-build
+          mkdir -p .picoquic-build/_deps/picotls-build
+          cp /tmp/picotls-build/picotls-build/libpicotls-*.a .picoquic-build/_deps/picotls-build/
+
+          echo "=== Copied picotls libraries ==="
+          ls -la .picoquic-build/_deps/picotls-build/
+          echo ""
+          echo "=== All picoquic build files ==="
+          find .picoquic-build -name "*.a" | sort
+
       - name: Set environment for static build
         run: |
           echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
@@ -379,6 +391,18 @@ jobs:
 
           echo "✅ Picoquic built successfully"
 
+      - name: Copy picotls libraries for Rust build
+        run: |
+          # The Rust build script expects picotls libs in _deps/picotls-build
+          mkdir -p .picoquic-build/_deps/picotls-build
+          cp /tmp/picotls-build/picotls-build/libpicotls-*.a .picoquic-build/_deps/picotls-build/
+
+          echo "=== Copied picotls libraries ==="
+          ls -la .picoquic-build/_deps/picotls-build/
+          echo ""
+          echo "=== All picoquic build files ==="
+          find .picoquic-build -name "*.a" | sort
+
       - name: Set environment for static build
         run: |
           echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
@@ -623,6 +647,19 @@ jobs:
           cmake --build $BUILD_DIR --config Release
 
           Write-Host "✅ Picoquic built"
+
+      - name: Copy picotls libraries for Rust build
+        shell: pwsh
+        run: |
+          # The Rust build script expects picotls libs in _deps\picotls-build
+          New-Item -ItemType Directory -Force -Path ".picoquic-build\_deps\picotls-build"
+          Copy-Item C:\tmp\picotls-build\picotls-build\Release\*.lib .picoquic-build\_deps\picotls-build\
+
+          Write-Host "=== Copied picotls libraries ==="
+          Get-ChildItem .picoquic-build\_deps\picotls-build\
+          Write-Host ""
+          Write-Host "=== All picoquic build files ==="
+          Get-ChildItem -Recurse .picoquic-build\*.lib
 
       - name: Build client
         shell: pwsh
