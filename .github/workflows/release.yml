@@ -776,14 +776,17 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
-            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
-            -DOPENSSL_LIBRARIES=/tmp/openssl-aarch64/lib/libssl.a\;/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_AR=/usr/bin/aarch64-linux-gnu-gcc-ar \
+            -DCMAKE_RANLIB=/usr/bin/aarch64-linux-gnu-gcc-ranlib \
             -DCMAKE_FIND_ROOT_PATH=/tmp/openssl-aarch64\;/usr/aarch64-linux-gnu \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
+            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
+            -DOPENSSL_CRYPTO_LIBRARY=/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DOPENSSL_SSL_LIBRARY=/tmp/openssl-aarch64/lib/libssl.a
 
           # Build only the library targets, not tests
           cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
@@ -807,14 +810,17 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
-            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
-            -DOPENSSL_LIBRARIES=/tmp/openssl-aarch64/lib/libssl.a\;/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_AR=/usr/bin/aarch64-linux-gnu-gcc-ar \
+            -DCMAKE_RANLIB=/usr/bin/aarch64-linux-gnu-gcc-ranlib \
             -DCMAKE_FIND_ROOT_PATH=/tmp/openssl-aarch64\;/usr/aarch64-linux-gnu \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
+            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
+            -DOPENSSL_CRYPTO_LIBRARY=/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DOPENSSL_SSL_LIBRARY=/tmp/openssl-aarch64/lib/libssl.a \
             -DPICOQUIC_FETCH_PTLS=OFF \
             -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
             -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
@@ -1119,14 +1125,17 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
-            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
-            -DOPENSSL_LIBRARIES=/tmp/openssl-aarch64/lib/libssl.a\;/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_AR=/usr/bin/aarch64-linux-gnu-gcc-ar \
+            -DCMAKE_RANLIB=/usr/bin/aarch64-linux-gnu-gcc-ranlib \
             -DCMAKE_FIND_ROOT_PATH=/tmp/openssl-aarch64\;/usr/aarch64-linux-gnu \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
+            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
+            -DOPENSSL_CRYPTO_LIBRARY=/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DOPENSSL_SSL_LIBRARY=/tmp/openssl-aarch64/lib/libssl.a
 
           # Build only the library targets, not tests
           cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
@@ -1150,14 +1159,17 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
-            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
-            -DOPENSSL_LIBRARIES=/tmp/openssl-aarch64/lib/libssl.a\;/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_AR=/usr/bin/aarch64-linux-gnu-gcc-ar \
+            -DCMAKE_RANLIB=/usr/bin/aarch64-linux-gnu-gcc-ranlib \
             -DCMAKE_FIND_ROOT_PATH=/tmp/openssl-aarch64\;/usr/aarch64-linux-gnu \
             -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DOPENSSL_ROOT_DIR=/tmp/openssl-aarch64 \
+            -DOPENSSL_INCLUDE_DIR=/tmp/openssl-aarch64/include \
+            -DOPENSSL_CRYPTO_LIBRARY=/tmp/openssl-aarch64/lib/libcrypto.a \
+            -DOPENSSL_SSL_LIBRARY=/tmp/openssl-aarch64/lib/libssl.a \
             -DPICOQUIC_FETCH_PTLS=OFF \
             -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls/include" \
             -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
