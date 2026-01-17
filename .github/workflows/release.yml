@@ -93,6 +93,17 @@ jobs:
 
           echo "✅ Picoquic built successfully"
 
+          # Debug: List what was actually created
+          echo ""
+          echo "=== Picoquic build directory contents ==="
+          ls -la "${BUILD_DIR}/"
+          echo ""
+          echo "=== Picoquic library files (.a) ==="
+          find "${BUILD_DIR}" -name "*.a" | sort
+          echo ""
+          echo "=== Picoquic subdirectories ==="
+          find "${BUILD_DIR}" -type d | head -20
+
       - name: Copy picotls libraries for Rust build
         run: |
           # The Rust build script expects picotls libs in _deps/picotls-build
@@ -409,6 +420,17 @@ jobs:
 
           echo "✅ Picoquic built successfully"
 
+          # Debug: List what was actually created
+          echo ""
+          echo "=== Picoquic build directory contents ==="
+          ls -la "${BUILD_DIR}/"
+          echo ""
+          echo "=== Picoquic library files (.a) ==="
+          find "${BUILD_DIR}" -name "*.a" | sort
+          echo ""
+          echo "=== Picoquic subdirectories ==="
+          find "${BUILD_DIR}" -type d | head -20
+
       - name: Copy picotls libraries for Rust build
         run: |
           # The Rust build script expects picotls libs in _deps/picotls-build
@@ -665,8 +687,11 @@ jobs:
           cmake -S C:\tmp\picotls-build\picotls -B C:\tmp\picotls-build\picotls-build `
             -DCMAKE_BUILD_TYPE=Release `
             -DOPENSSL_ROOT_DIR=C:\vcpkg\installed\x64-windows-static `
+            -DOPENSSL_INCLUDE_DIR=C:\vcpkg\installed\x64-windows-static\include `
             -DOPENSSL_CRYPTO_LIBRARY=C:\vcpkg\installed\x64-windows-static\lib\libcrypto.lib `
             -DOPENSSL_SSL_LIBRARY=C:\vcpkg\installed\x64-windows-static\lib\libssl.lib `
+            -DCMAKE_C_FLAGS="-I\"C:\tmp\picotls-build\picotls\include\"" `
+            -DCMAKE_SHARED_C_FLAGS="-I\"C:\tmp\picotls-build\picotls\include\"" `
             -A x64
 
           # Build only the library targets, not tests
