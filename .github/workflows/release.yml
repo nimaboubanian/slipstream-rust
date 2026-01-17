@@ -56,14 +56,15 @@ jobs:
           echo "✅ Cloned picotls with submodules"
           head -n 5 CMakeLists.txt
 
-          # Build picotls libraries (tests will be built but we only use the libs)
+          # Build picotls libraries only (skip test targets)
           mkdir -p /tmp/picotls-build/picotls-build
           cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENSSL_ROOT_DIR=/usr \
             -DOPENSSL_LIBRARIES=/usr/lib
 
-          cmake --build /tmp/picotls-build/picotls-build
+          # Build only the library targets, not tests
+          cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
 
           echo "✅ Built picotls libraries"
           ls -la /tmp/picotls-build/picotls-build/*.a
@@ -371,14 +372,15 @@ jobs:
           echo "✅ Cloned picotls with submodules"
           head -n 5 CMakeLists.txt
 
-          # Build picotls libraries (tests will be built but we only use the libs)
+          # Build picotls libraries only (skip test targets)
           mkdir -p /tmp/picotls-build/picotls-build
           cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENSSL_ROOT_DIR=/usr \
             -DOPENSSL_LIBRARIES=/usr/lib
 
-          cmake --build /tmp/picotls-build/picotls-build
+          # Build only the library targets, not tests
+          cmake --build /tmp/picotls-build/picotls-build --target picotls-core picotls-minicrypto picotls-openssl
 
           echo "✅ Built picotls libraries"
           ls -la /tmp/picotls-build/picotls-build/*.a
@@ -657,7 +659,7 @@ jobs:
           Write-Host "✅ Patched picotls for Windows"
           Get-Content CMakeLists.txt -Head 5
 
-          # Build picotls libraries
+          # Build picotls libraries only (skip test targets that fail on Windows)
           New-Item -ItemType Directory -Force -Path "C:\tmp\picotls-build\picotls-build"
 
           cmake -S C:\tmp\picotls-build\picotls -B C:\tmp\picotls-build\picotls-build `
@@ -667,7 +669,8 @@ jobs:
             -DOPENSSL_SSL_LIBRARY=C:\vcpkg\installed\x64-windows-static\lib\libssl.lib `
             -A x64
 
-          cmake --build C:\tmp\picotls-build\picotls-build --config Release
+          # Build only the library targets, not tests
+          cmake --build C:\tmp\picotls-build\picotls-build --config Release --target picotls-core picotls-minicrypto picotls-openssl
 
           Write-Host "✅ Built picotls libraries"
           if (Test-Path "C:\tmp\picotls-build\picotls-build\Release\*.lib") {
