@@ -43,38 +43,53 @@ jobs:
 
       - name: Pre-fetch and patch picotls
         run: |
-          echo "Pre-fetching picotls to patch CMake requirement..."
-          
-          # Create build directory
-          mkdir -p .picoquic-build/_deps
-          cd .picoquic-build/_deps
-          
-          # Clone picotls
-          git clone --depth 1 https://github.com/h2o/picotls.git picotls-src
-          
+          echo "Pre-fetching and building picotls..."
+
+          # Clone picotls to a temporary location
+          mkdir -p /tmp/picotls-build/picotls
+          git clone --depth 1 https://github.com/h2o/picotls.git /tmp/picotls-build/picotls
+
           # Patch the CMakeLists.txt
-          cd picotls-src
+          cd /tmp/picotls-build/picotls
           sed -i 's/CMAKE_MINIMUM_REQUIRED(VERSION [0-9.]*)/CMAKE_MINIMUM_REQUIRED(VERSION 3.5)/' CMakeLists.txt
-          
+
           echo "✅ Patched picotls CMakeLists.txt"
           head -n 5 CMakeLists.txt
+
+          # Build picotls
+          mkdir -p /tmp/picotls-build/picotls-build
+          cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPENSSL_ROOT_DIR=/usr \
+            -DOPENSSL_LIBRARIES=/usr/lib
+
+          cmake --build /tmp/picotls-build/picotls-build
+
+          echo "✅ Built picotls libraries"
+          ls -la /tmp/picotls-build/picotls-build/*.a
 
       - name: Build picoquic
         run: |
           ROOT_DIR="$PWD"
           PICOQUIC_DIR="${ROOT_DIR}/vendor/picoquic"
           BUILD_DIR="${ROOT_DIR}/.picoquic-build"
-          
+          PICOQUIC_PATCHED_PTLS="/tmp/picotls-build"
+          PICOQUIC_PATCHED_PTLS_BUILD="/tmp/picotls-build/picotls-build"
+
           echo "Building picoquic..."
-          
-          # Configure (picotls already fetched and patched)
+
+          # Configure with the pre-built picotls
           cmake -S "${PICOQUIC_DIR}" -B "${BUILD_DIR}" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DPICOQUIC_FETCH_PTLS=OFF
-          
-          # Build
+            -DPICOQUIC_FETCH_PTLS=OFF \
+            -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls" \
+            -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
+            -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
+            -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
+
+          # Build picoquic
           cmake --build "${BUILD_DIR}"
-          
+
           echo "✅ Picoquic built successfully"
 
       - name: Set environment for static build
@@ -277,6 +292,241 @@ jobs:
           name: slipstream-server-linux-x64-static
           path: release/*.tar.gz
 
+  build-linux-client:
+    name: Build Linux Client (Static)
+    runs-on: ubuntu-latest
+    container:
+      image: rust:alpine
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
+          echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+
+          apk update
+          apk add --no-cache \
+            git \
+            cmake \
+            make \
+            gcc \
+            g++ \
+            musl-dev \
+            linux-headers \
+            openssl-dev \
+            openssl-libs-static \
+            pkgconfig \
+            bash \
+            perl \
+            file \
+            binutils
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Pre-fetch and patch picotls
+        run: |
+          echo "Pre-fetching and building picotls..."
+
+          # Clone picotls to a temporary location
+          mkdir -p /tmp/picotls-build/picotls
+          git clone --depth 1 https://github.com/h2o/picotls.git /tmp/picotls-build/picotls
+
+          # Patch the CMakeLists.txt
+          cd /tmp/picotls-build/picotls
+          sed -i 's/CMAKE_MINIMUM_REQUIRED(VERSION [0-9.]*)/CMAKE_MINIMUM_REQUIRED(VERSION 3.5)/' CMakeLists.txt
+
+          echo "✅ Patched picotls CMakeLists.txt"
+          head -n 5 CMakeLists.txt
+
+          # Build picotls
+          mkdir -p /tmp/picotls-build/picotls-build
+          cmake -S /tmp/picotls-build/picotls -B /tmp/picotls-build/picotls-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPENSSL_ROOT_DIR=/usr \
+            -DOPENSSL_LIBRARIES=/usr/lib
+
+          cmake --build /tmp/picotls-build/picotls-build
+
+          echo "✅ Built picotls libraries"
+          ls -la /tmp/picotls-build/picotls-build/*.a
+
+      - name: Build picoquic
+        run: |
+          ROOT_DIR="$PWD"
+          PICOQUIC_DIR="${ROOT_DIR}/vendor/picoquic"
+          BUILD_DIR="${ROOT_DIR}/.picoquic-build"
+          PICOQUIC_PATCHED_PTLS="/tmp/picotls-build"
+          PICOQUIC_PATCHED_PTLS_BUILD="/tmp/picotls-build/picotls-build"
+
+          echo "Building picoquic..."
+
+          # Configure with the pre-built picotls
+          cmake -S "${PICOQUIC_DIR}" -B "${BUILD_DIR}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPICOQUIC_FETCH_PTLS=OFF \
+            -DPTLS_INCLUDE_DIR="${PICOQUIC_PATCHED_PTLS}/picotls" \
+            -DPTLS_CORE_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-core.a" \
+            -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
+            -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
+
+          # Build picoquic
+          cmake --build "${BUILD_DIR}"
+
+          echo "✅ Picoquic built successfully"
+
+      - name: Set environment for static build
+        run: |
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
+          echo "PICOQUIC_AUTO_BUILD=0" >> $GITHUB_ENV
+
+      - name: Build client
+        run: |
+          echo "Building slipstream-client..."
+          cargo build --release --target x86_64-unknown-linux-musl -p slipstream-client
+          echo "✅ Client built successfully"
+
+      - name: Verify static linking
+        run: |
+          BINARY="target/x86_64-unknown-linux-musl/release/slipstream-client"
+
+          echo "=== Binary information ==="
+          file "$BINARY"
+
+          echo ""
+          echo "=== File size (before strip) ==="
+          ls -lh "$BINARY"
+
+          echo ""
+          echo "=== Checking dynamic dependencies ==="
+          if ldd "$BINARY" 2>&1 | grep -q "not a dynamic executable"; then
+            echo "✅ SUCCESS: Fully static binary!"
+          else
+            echo "⚠️  Dynamic dependencies:"
+            ldd "$BINARY" || true
+          fi
+
+          echo ""
+          echo "=== Stripping debug symbols ==="
+          strip "$BINARY"
+          echo "Final size:"
+          ls -lh "$BINARY"
+
+      - name: Create release package
+        run: |
+          mkdir -p release/slipstream-client
+          cp target/x86_64-unknown-linux-musl/release/slipstream-client release/slipstream-client/
+
+          cat > release/slipstream-client/client.conf << 'EOF'
+          # Slipstream Client Configuration
+          DOMAIN=tunnel.example.com
+          RESOLVER=YOUR_SERVER_IP:53
+          TCP_LISTEN_PORT=7000
+          CONGESTION_CONTROL=dcubic
+          EOF
+
+          cat > release/slipstream-client/start-client.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
+          if [ ! -f client.conf ]; then
+              echo "❌ Error: client.conf not found"
+              exit 1
+          fi
+
+          source client.conf
+
+          if [ "$RESOLVER" = "YOUR_SERVER_IP:53" ]; then
+              echo "❌ Error: Configure RESOLVER in client.conf"
+              exit 1
+          fi
+
+          echo "================================================"
+          echo "  Slipstream DNS Tunnel Client"
+          echo "================================================"
+          echo ""
+          echo "Configuration:"
+          echo "  Domain      : ${DOMAIN}"
+          echo "  Resolver    : ${RESOLVER}"
+          echo "  Listen Port : ${TCP_LISTEN_PORT}"
+          echo ""
+
+          echo "Starting client..."
+          echo "Press Ctrl+C to stop"
+          echo ""
+
+          ./slipstream-client \
+            --domain ${DOMAIN} \
+            --resolver ${RESOLVER} \
+            --tcp-listen-port ${TCP_LISTEN_PORT} \
+            --congestion-control ${CONGESTION_CONTROL}
+          EOF
+          chmod +x release/slipstream-client/start-client.sh
+
+          cat > release/slipstream-client/README.md << 'EOF'
+          # Slipstream Client - Linux x86_64 (Fully Static)
+
+          ✅ **Zero runtime dependencies - Works on ANY x86_64 Linux**
+
+          ## Quick Start
+
+          ```bash
+          # 1. Configure (edit client.conf)
+          nano client.conf
+
+          # 2. Run
+          ./start-client.sh
+
+          # 3. Use SOCKS5 proxy
+          curl --proxy socks5://127.0.0.1:7000 http://example.com
+          ```
+
+          ## Requirements
+
+          **To run the client**: NOTHING (fully static binary)
+
+          Works on: Any x86_64 Linux distribution (Ubuntu, Debian, CentOS, Alpine, etc.)
+
+          ## Configuration
+
+          Edit `client.conf`:
+          - `DOMAIN`: Your tunnel domain (e.g., tunnel.example.com)
+          - `RESOLVER`: DNS server IP (your server's IP)
+          - `TCP_LISTEN_PORT`: Local SOCKS5 proxy port (default: 7000)
+          - `CONGESTION_CONTROL`: Congestion algorithm (dcubic, bbr, cubic)
+
+          ## Testing
+
+          ```bash
+          # Test SOCKS5 proxy
+          curl --proxy socks5://127.0.0.1:7000 http://example.com
+
+          # Test with SSH
+          ssh -o ProxyCommand="nc -X 5 -x 127.0.0.1:7000 %h %p" user@remote
+          ```
+
+          ## Documentation
+
+          https://github.com/Mygod/slipstream-rust
+          EOF
+
+          cd release
+          tar -czf slipstream-client-linux-x64-static.tar.gz slipstream-client/
+
+          echo ""
+          echo "=== Package created ==="
+          ls -lh *.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slipstream-client-linux-x64-static
+          path: release/*.tar.gz
+
   build-windows:
     name: Build Windows Client (Static)
     runs-on: windows-latest
@@ -324,34 +574,50 @@ jobs:
       - name: Pre-fetch and patch picotls
         shell: pwsh
         run: |
-          Write-Host "Pre-fetching picotls..."
-          
-          New-Item -ItemType Directory -Force -Path ".picoquic-build\_deps"
-          cd ".picoquic-build\_deps"
-          
-          git clone --depth 1 https://github.com/h2o/picotls.git picotls-src
-          
-          cd picotls-src
+          Write-Host "Pre-fetching and building picotls..."
+
+          New-Item -ItemType Directory -Force -Path "C:\tmp\picotls-build\picotls"
+          git clone --depth 1 https://github.com/h2o/picotls.git C:\tmp\picotls-build\picotls
+
+          cd C:\tmp\picotls-build\picotls
           (Get-Content CMakeLists.txt) -replace 'CMAKE_MINIMUM_REQUIRED\(VERSION [0-9.]+\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)' | Set-Content CMakeLists.txt
-          
+
           Write-Host "✅ Patched picotls"
           Get-Content CMakeLists.txt -Head 5
+
+          # Build picotls
+          New-Item -ItemType Directory -Force -Path "C:\tmp\picotls-build\picotls-build"
+
+          cmake -S C:\tmp\picotls-build\picotls -B C:\tmp\picotls-build\picotls-build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -A x64
+
+          cmake --build C:\tmp\picotls-build\picotls-build --config Release
+
+          Write-Host "✅ Built picotls libraries"
+          Get-ChildItem C:\tmp\picotls-build\picotls-build\Release\*.lib
 
       - name: Build picoquic
         shell: pwsh
         run: |
           $PICOQUIC_DIR = "$PWD\vendor\picoquic"
           $BUILD_DIR = "$PWD\.picoquic-build"
-          
+          $PICOQUIC_PATCHED_PTLS = "C:\tmp\picotls-build"
+          $PICOQUIC_PATCHED_PTLS_BUILD = "C:\tmp\picotls-build\picotls-build\Release"
+
           Write-Host "Building picoquic..."
-          
+
           cmake -S $PICOQUIC_DIR -B $BUILD_DIR `
             -DCMAKE_BUILD_TYPE=Release `
             -DPICOQUIC_FETCH_PTLS=OFF `
+            -DPTLS_INCLUDE_DIR="$PICOQUIC_PATCHED_PTLS\picotls" `
+            -DPTLS_CORE_LIBRARY="$PICOQUIC_PATCHED_PTLS_BUILD\picotls-core.lib" `
+            -DPTLS_OPENSSL_LIBRARY="$PICOQUIC_PATCHED_PTLS_BUILD\picotls-openssl.lib" `
+            -DPTLS_MINICRYPTO_LIBRARY="$PICOQUIC_PATCHED_PTLS_BUILD\picotls-minicrypto.lib" `
             -A x64
-          
+
           cmake --build $BUILD_DIR --config Release
-          
+
           Write-Host "✅ Picoquic built"
 
       - name: Build client
@@ -456,10 +722,10 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-linux-client, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-    
+
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -475,17 +741,22 @@ jobs:
           generate_release_notes: true
           body: |
             ## 🚀 Standalone Executables - Zero Dependencies
-            
+
             ### Linux Server
             - **File**: `slipstream-server-linux-x64-static.tar.gz`
             - **Static MUSL binary** - works on ANY x86_64 Linux
             - **No dependencies** required to run
-            
+
+            ### Linux Client
+            - **File**: `slipstream-client-linux-x64-static.tar.gz`
+            - **Static MUSL binary** - works on ANY x86_64 Linux
+            - **No dependencies** required to run
+
             ### Windows Client
             - **File**: `slipstream-client-windows-x64-static.zip`
             - **Static binary** - no VC++ Redistributable needed
             - **No dependencies** required to run
-            
+
             ### Quick Start
             1. Download and extract
             2. Edit configuration file
