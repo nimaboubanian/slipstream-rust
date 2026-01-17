@@ -141,6 +141,36 @@ jobs:
           echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
           echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
 
+      - name: Verify libraries before Rust build
+        run: |
+          echo "=== Verifying required libraries ==="
+
+          # Check picoquic library
+          if [ -f ".picoquic-build/libpicoquic-core.a" ]; then
+            echo "✓ Found: .picoquic-build/libpicoquic-core.a"
+          elif [ -f ".picoquic-build/libpicoquic_core.a" ]; then
+            echo "✓ Found: .picoquic-build/libpicoquic_core.a"
+          elif [ -f ".picoquic-build/picoquic/libpicoquic-core.a" ]; then
+            echo "✓ Found: .picoquic-build/picoquic/libpicoquic-core.a"
+          else
+            echo "✗ NOT FOUND: libpicoquic-core.a"
+            echo "Searching for picoquic libraries:"
+            find .picoquic-build -name "*picoquic*" 2>/dev/null || true
+          fi
+
+          # Check picotls libraries
+          for lib in picotls-core picotls-minicrypto picotls-openssl; do
+            if [ -f ".picoquic-build/_deps/picotls-build/lib$lib.a" ]; then
+              echo "✓ Found: .picoquic-build/_deps/picotls-build/lib$lib.a"
+            else
+              echo "✗ NOT FOUND: lib$lib.a"
+            fi
+          done
+
+          echo ""
+          echo "=== All .a files in build directory ==="
+          find .picoquic-build -name "*.a" | sort
+
       - name: Build server
         run: |
           echo "Building slipstream-server..."
@@ -468,6 +498,36 @@ jobs:
           echo "PICOQUIC_BUILD_DIR=$PWD/.picoquic-build" >> $GITHUB_ENV
           echo "PICOTLS_INCLUDE_DIR=/tmp/picotls-build/picotls/include" >> $GITHUB_ENV
 
+      - name: Verify libraries before Rust build
+        run: |
+          echo "=== Verifying required libraries ==="
+
+          # Check picoquic library
+          if [ -f ".picoquic-build/libpicoquic-core.a" ]; then
+            echo "✓ Found: .picoquic-build/libpicoquic-core.a"
+          elif [ -f ".picoquic-build/libpicoquic_core.a" ]; then
+            echo "✓ Found: .picoquic-build/libpicoquic_core.a"
+          elif [ -f ".picoquic-build/picoquic/libpicoquic-core.a" ]; then
+            echo "✓ Found: .picoquic-build/picoquic/libpicoquic-core.a"
+          else
+            echo "✗ NOT FOUND: libpicoquic-core.a"
+            echo "Searching for picoquic libraries:"
+            find .picoquic-build -name "*picoquic*" 2>/dev/null || true
+          fi
+
+          # Check picotls libraries
+          for lib in picotls-core picotls-minicrypto picotls-openssl; do
+            if [ -f ".picoquic-build/_deps/picotls-build/lib$lib.a" ]; then
+              echo "✓ Found: .picoquic-build/_deps/picotls-build/lib$lib.a"
+            else
+              echo "✗ NOT FOUND: lib$lib.a"
+            fi
+          done
+
+          echo ""
+          echo "=== All .a files in build directory ==="
+          find .picoquic-build -name "*.a" | sort
+
       - name: Build client
         run: |
           echo "Building slipstream-client..."
@@ -684,14 +744,19 @@ jobs:
           # Build picotls libraries only (skip test targets that fail on Windows)
           New-Item -ItemType Directory -Force -Path "C:\tmp\picotls-build\picotls-build"
 
+          # Set include paths for picotls to find its own headers (wincompat.h, etc.)
+          $PicotlsSource = "C:\tmp\picotls-build\picotls"
+          $PicotlsInclude = "C:\tmp\picotls-build\picotls\include"
+          $CFlags = "-I`"$PicotlsInclude`" -I`"$PicotlsSource\lib`" -I`"$PicotlsSource`""
+
           cmake -S C:\tmp\picotls-build\picotls -B C:\tmp\picotls-build\picotls-build `
             -DCMAKE_BUILD_TYPE=Release `
             -DOPENSSL_ROOT_DIR=C:\vcpkg\installed\x64-windows-static `
             -DOPENSSL_INCLUDE_DIR=C:\vcpkg\installed\x64-windows-static\include `
             -DOPENSSL_CRYPTO_LIBRARY=C:\vcpkg\installed\x64-windows-static\lib\libcrypto.lib `
             -DOPENSSL_SSL_LIBRARY=C:\vcpkg\installed\x64-windows-static\lib\libssl.lib `
-            -DCMAKE_C_FLAGS="-I\"C:\tmp\picotls-build\picotls\include\"" `
-            -DCMAKE_SHARED_C_FLAGS="-I\"C:\tmp\picotls-build\picotls\include\"" `
+            -DCMAKE_C_FLAGS="$CFlags" `
+            -DCMAKE_SHARED_C_FLAGS="$CFlags" `
             -A x64
 
           # Build only the library targets, not tests
@@ -756,6 +821,36 @@ jobs:
           Get-ChildItem $destDir\
           Write-Host ""
           Write-Host "=== All picoquic build files ==="
+          Get-ChildItem -Recurse .picoquic-build\*.lib
+
+      - name: Verify libraries before Rust build
+        shell: pwsh
+        run: |
+          Write-Host "=== Verifying required libraries ==="
+
+          # Check picoquic library
+          $PicoquicLib = ".picoquic-build\picoquic-core.lib"
+          if (Test-Path $PicoquicLib) {
+            Write-Host "✓ Found: $PicoquicLib"
+          } else {
+            Write-Host "✗ NOT FOUND: picoquic-core.lib"
+            Write-Host "Searching for picoquic libraries:"
+            Get-ChildItem -Recurse .picoquic-build\*picoquic*.lib
+          }
+
+          # Check picotls libraries
+          $PicotlsDir = ".picoquic-build\_deps\picotls-build"
+          foreach ($lib in @("picotls-core", "picotls-minicrypto", "picotls-openssl")) {
+            $LibPath = "$PicotlsDir\$lib.lib"
+            if (Test-Path $LibPath) {
+              Write-Host "✓ Found: $LibPath"
+            } else {
+              Write-Host "✗ NOT FOUND: $lib.lib"
+            }
+          }
+
+          Write-Host ""
+          Write-Host "=== All .lib files in build directory ==="
           Get-ChildItem -Recurse .picoquic-build\*.lib
 
       - name: Build client
