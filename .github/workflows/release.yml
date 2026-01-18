@@ -834,8 +834,9 @@ jobs:
             -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
             -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
 
-          # Build the library - don't use || true, we need to know if it fails
-          cmake --build "${BUILD_DIR}"
+          # Use make directly to build only the main library
+          # This avoids building test executables that have complex OpenSSL dependencies
+          make -C "${BUILD_DIR}" libpicoquic.a
 
           echo "✅ Picoquic built successfully for aarch64"
 
@@ -1194,8 +1195,9 @@ jobs:
             -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
             -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
 
-          # Build the library - don't use || true, we need to know if it fails
-          cmake --build "${BUILD_DIR}"
+          # Use make directly to build only the main library
+          # This avoids building test executables that have complex OpenSSL dependencies
+          make -C "${BUILD_DIR}" libpicoquic.a
 
           echo "✅ Picoquic built successfully for aarch64"
 
