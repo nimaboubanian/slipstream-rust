@@ -834,9 +834,31 @@ jobs:
             -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
             -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
 
-          # Use make directly to build only the main library
-          # This avoids building test executables that have complex OpenSSL dependencies
-          make -C "${BUILD_DIR}" libpicoquic.a
+          # Build all targets, ignore test executable linking errors
+          cmake --build "${BUILD_DIR}" || true
+
+          echo "✅ Picoquic built successfully for aarch64"
+
+          # Verify the library was built - it should be at .picoquic/libpicoquic.a
+          # or .picoquic-core/libpicoquic.a depending on directory structure
+          if [ -f "${BUILD_DIR}/.picoquic/libpicoquic.a" ]; then
+            LIB="${BUILD_DIR}/.picoquic/libpicoquic.a"
+          elif [ -f "${BUILD_DIR}/.picoquic/libpicoquic-core/libpicoquic.a" ]; then
+            LIB="${BUILD_DIR}/.picoquic/libpicoquic-core/libpicoquic.a"
+            # Copy to root so Rust build can find it
+            cp "${LIB}" "${BUILD_DIR}/libpicoquic.a"
+          else
+            echo "❌ Could not find picoquic library"
+            find "${BUILD_DIR}" -name "*.a"
+            exit 1
+          fi
+
+          # Verify it's ARM64
+          file "${BUILD_DIR}/libpicoquic.a" | grep -q "aarch64" || exit 1
+
+          echo ""
+          echo "=== Picoquic library files (.a) ==="
+          find "${BUILD_DIR}" -name "*.a" | sort
 
           echo "✅ Picoquic built successfully for aarch64"
 
@@ -1195,9 +1217,31 @@ jobs:
             -DPTLS_OPENSSL_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-openssl.a" \
             -DPTLS_MINICRYPTO_LIBRARY="${PICOQUIC_PATCHED_PTLS_BUILD}/libpicotls-minicrypto.a"
 
-          # Use make directly to build only the main library
-          # This avoids building test executables that have complex OpenSSL dependencies
-          make -C "${BUILD_DIR}" libpicoquic.a
+          # Build all targets, ignore test executable linking errors
+          cmake --build "${BUILD_DIR}" || true
+
+          echo "✅ Picoquic built successfully for aarch64"
+
+          # Verify the library was built - it should be at .picoquic/libpicoquic.a
+          # or .picoquic-core/libpicoquic.a depending on directory structure
+          if [ -f "${BUILD_DIR}/.picoquic/libpicoquic.a" ]; then
+            LIB="${BUILD_DIR}/.picoquic/libpicoquic.a"
+          elif [ -f "${BUILD_DIR}/.picoquic/libpicoquic-core/libpicoquic.a" ]; then
+            LIB="${BUILD_DIR}/.picoquic/libpicoquic-core/libpicoquic.a"
+            # Copy to root so Rust build can find it
+            cp "${LIB}" "${BUILD_DIR}/libpicoquic.a"
+          else
+            echo "❌ Could not find picoquic library"
+            find "${BUILD_DIR}" -name "*.a"
+            exit 1
+          fi
+
+          # Verify it's ARM64
+          file "${BUILD_DIR}/libpicoquic.a" | grep -q "aarch64" || exit 1
+
+          echo ""
+          echo "=== Picoquic library files (.a) ==="
+          find "${BUILD_DIR}" -name "*.a" | sort
 
           echo "✅ Picoquic built successfully for aarch64"
 
